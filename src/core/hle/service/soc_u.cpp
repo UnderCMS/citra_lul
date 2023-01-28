@@ -719,7 +719,7 @@ void SOC_U::RecvFrom(Kernel::HLERequestContext& ctx) {
 
     CTRSockAddr ctr_src_addr;
     std::vector<u8> output_buff(len);
-    std::vector<u8> addr_buff(sizeof(ctr_src_addr));
+    std::vector<u8> addr_buff(addr_len);
     sockaddr src_addr;
     socklen_t src_addr_len = sizeof(src_addr);
 
@@ -731,7 +731,7 @@ void SOC_U::RecvFrom(Kernel::HLERequestContext& ctx) {
                          len, flags, &src_addr, &src_addr_len);
         if (ret >= 0 && src_addr_len > 0) {
             ctr_src_addr = CTRSockAddr::FromPlatform(src_addr);
-            std::memcpy(addr_buff.data(), &ctr_src_addr, sizeof(ctr_src_addr));
+            std::memcpy(addr_buff.data(), &ctr_src_addr, addr_len);
         }
     } else {
         ret = ::recvfrom(fd_info->second.socket_fd, reinterpret_cast<char*>(output_buff.data()),
@@ -849,6 +849,58 @@ void SOC_U::Shutdown(Kernel::HLERequestContext& ctx) {
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
     rb.Push(RESULT_SUCCESS);
     rb.Push(ret);
+}
+
+void SOC_U::GetHostByName(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx, 0x0D, 2, 2);
+    u32 name_len = rp.Pop<u32>();
+    u32 out_buf_len = rp.Pop<u32>();
+    auto host_name = rp.PopStaticBuffer();
+
+    struct hostent* result = ::gethostbyname(reinterpret_cast<char*>(host_name.data()));
+    HostByNameData* hbn_data_ptr =
+        reinterpret_cast<HostByNameData*>(malloc(sizeof(HostByNameData)));
+    if (hbn_data_ptr == nullptr) {
+        ASSERT_MSG(false, "Failed to allocate memory for HostByNameData");
+        return;
+    }
+    HostByNameData& hbn_data = *hbn_data_ptr;
+    memset(&hbn_data, 0, sizeof(HostByNameData));
+    int ret = 0;
+
+    if (result) {
+        hbn_data.addr_type = result->h_addrtype;
+        hbn_data.addr_len = result->h_length;
+        strncpy(hbn_data.hName, result->h_name, 255);
+        int count;
+        for (count = 0; count < HostByNameData::max_entries; count++) {
+            char* curr = result->h_aliases[count];
+            if (!curr) {
+                break;
+            }
+            strncpy(hbn_data.aliases[count], curr, 255);
+        }
+        hbn_data.alias_count = count;
+        for (count = 0; count < HostByNameData::max_entries; count++) {
+            char* curr = result->h_addr_list[count];
+            if (!curr) {
+                break;
+            }
+            memcpy(hbn_data.addreses[count], curr, result->h_length);
+        }
+        hbn_data.addr_count = count;
+    } else {
+        ret = -1;
+    }
+
+    std::vector<u8> hbn_data_out(sizeof(HostByNameData));
+    std::memcpy(hbn_data_out.data(), &hbn_data, sizeof(HostByNameData));
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
+    rb.Push(RESULT_SUCCESS);
+    rb.Push(ret);
+    rb.PushStaticBuffer(std::move(hbn_data_out), 0);
+    free(hbn_data_ptr);
 }
 
 void SOC_U::GetPeerName(Kernel::HLERequestContext& ctx) {
@@ -1009,6 +1061,51 @@ void SOC_U::SetSockOpt(Kernel::HLERequestContext& ctx) {
     rb.Push(err);
 }
 
+void SOC_U::GetNetworkOpt(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx, 0x1A, 3, 0);
+    u32 level = rp.Pop<u32>();
+    u32 opt_name = rp.Pop<u32>();
+    u32 opt_len = rp.Pop<u32>();
+    u32 err = 0xffff8025;
+    std::vector<u8> opt_data(opt_len);
+
+    if (level == 0xfffe) {
+        if (opt_name == 0x4003) {
+            if (opt_len >= 0xC) {
+                memcpy(opt_data.data(), std::array<u8, 4>({0, 0, 0, 0}).data(),
+                       4); // Interface IP address
+                memcpy(opt_data.data() + 4, std::array<u8, 4>({0, 0, 0, 0}).data(),
+                       4); // Interface IP Mask
+                memcpy(opt_data.data() + 8, std::array<u8, 4>({0, 0, 0, 0}).data(),
+                       4); // Interface IP Broadcast
+                LOG_ERROR(Service_SOC, "GetNetworkOpt level={} opt_name={} opt_len>=12 STUBBED",
+                          level, opt_name);
+            }
+            if (opt_len >= 0x18) {
+                LOG_ERROR(Service_SOC, "GetNetworkOpt level={} opt_name={} opt_len>=24 STUBBED",
+                          level, opt_name);
+                memset(opt_data.data() + 0xC, 0, 0xC);
+            }
+            err = 0;
+        } else {
+            LOG_ERROR(Service_SOC, "Unknown GetNetworkOpt opt_name={}", opt_name);
+        }
+    } else {
+        LOG_ERROR(Service_SOC, "Unknown GetNetworkOpt level={}", level);
+    }
+
+    if (err != 0) {
+        opt_data.resize(0);
+        opt_len = 0;
+    }
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
+    rb.Push(RESULT_SUCCESS);
+    rb.Push(err);
+    rb.Push(static_cast<u32>(opt_len));
+    rb.PushStaticBuffer(std::move(opt_data), 0);
+}
+
 void SOC_U::GetAddrInfoImpl(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x0F, 4, 6);
     u32 node_length = rp.Pop<u32>();
@@ -1054,7 +1151,6 @@ void SOC_U::GetAddrInfoImpl(Kernel::HLERequestContext& ctx) {
                 // if the buffer is not big enough. However the count returned is always correct.
                 CTRAddrInfo ctr_addr = CTRAddrInfo::FromPlatform(*cur);
                 std::memcpy(out_buff.data() + pos, &ctr_addr, sizeof(ctr_addr));
-                pos += sizeof(ctr_addr);
             }
             cur = cur->ai_next;
             count++;
@@ -1113,7 +1209,7 @@ SOC_U::SOC_U() : ServiceFramework("soc:U") {
         {0x000A0106, &SOC_U::SendTo, "SendTo"},
         {0x000B0042, &SOC_U::Close, "Close"},
         {0x000C0082, &SOC_U::Shutdown, "Shutdown"},
-        {0x000D0082, nullptr, "GetHostByName"},
+        {0x000D0082, &SOC_U::GetHostByName, "GetHostByName"},
         {0x000E00C2, nullptr, "GetHostByAddr"},
         {0x000F0106, &SOC_U::GetAddrInfoImpl, "GetAddrInfo"},
         {0x00100102, &SOC_U::GetNameInfoImpl, "GetNameInfo"},
@@ -1126,7 +1222,7 @@ SOC_U::SOC_U() : ServiceFramework("soc:U") {
         {0x00170082, &SOC_U::GetSockName, "GetSockName"},
         {0x00180082, &SOC_U::GetPeerName, "GetPeerName"},
         {0x00190000, &SOC_U::ShutdownSockets, "ShutdownSockets"},
-        {0x001A00C0, nullptr, "GetNetworkOpt"},
+        {0x001A00C0, &SOC_U::GetNetworkOpt, "GetNetworkOpt"},
         {0x001B0040, nullptr, "ICMPSocket"},
         {0x001C0104, nullptr, "ICMPPing"},
         {0x001D0040, nullptr, "ICMPCancel"},

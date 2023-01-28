@@ -45,6 +45,19 @@ private:
         ResultCode(ErrorDescription::InvalidHandle, ErrorModule::SOC, ErrorSummary::InvalidArgument,
                    ErrorLevel::Permanent);
 
+    struct HostByNameData {
+        static const u32 max_entries = 24;
+
+        u16_le addr_type;
+        u16_le addr_len;
+        u16_le addr_count;
+        u16_le alias_count;
+        char hName[256];
+        char aliases[max_entries][256];
+        u8 addreses[max_entries][16];
+    };
+    static_assert(sizeof(HostByNameData) == 0x1A88, "Invalid HostByNameData size");
+
     void Socket(Kernel::HLERequestContext& ctx);
     void Bind(Kernel::HLERequestContext& ctx);
     void Fcntl(Kernel::HLERequestContext& ctx);
@@ -58,12 +71,14 @@ private:
     void Poll(Kernel::HLERequestContext& ctx);
     void GetSockName(Kernel::HLERequestContext& ctx);
     void Shutdown(Kernel::HLERequestContext& ctx);
+    void GetHostByName(Kernel::HLERequestContext& ctx);
     void GetPeerName(Kernel::HLERequestContext& ctx);
     void Connect(Kernel::HLERequestContext& ctx);
     void InitializeSockets(Kernel::HLERequestContext& ctx);
     void ShutdownSockets(Kernel::HLERequestContext& ctx);
     void GetSockOpt(Kernel::HLERequestContext& ctx);
     void SetSockOpt(Kernel::HLERequestContext& ctx);
+    void GetNetworkOpt(Kernel::HLERequestContext& ctx);
 
     // Some platforms seem to have GetAddrInfo and GetNameInfo defined as macros,
     // so we have to use a different name here.
