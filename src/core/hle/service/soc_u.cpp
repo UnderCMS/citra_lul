@@ -570,20 +570,15 @@ void SOC_U::Accept(Kernel::HLERequestContext& ctx) {
 void SOC_U::GetHostId(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x16, 0, 0);
 
-    char name[128];
-    gethostname(name, sizeof(name));
-    addrinfo hints = {};
-    addrinfo* res;
-
-    hints.ai_family = AF_INET;
-    getaddrinfo(name, nullptr, &hints, &res);
-    sockaddr_in* sock_addr = reinterpret_cast<sockaddr_in*>(res->ai_addr);
-    in_addr* addr = &sock_addr->sin_addr;
+    InterfaceInfo info;
+    u32 host_id = -1;
+    if (GetDefaultInterfaceInfo(&info)) {
+        host_id = info.address;
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
     rb.Push(RESULT_SUCCESS);
-    rb.Push(static_cast<u32>(addr->s_addr));
-    freeaddrinfo(res);
+    rb.Push(host_id);
 }
 
 void SOC_U::Close(Kernel::HLERequestContext& ctx) {
@@ -1072,14 +1067,14 @@ void SOC_U::GetNetworkOpt(Kernel::HLERequestContext& ctx) {
     if (level == 0xfffe) {
         if (opt_name == 0x4003) {
             if (opt_len >= 0xC) {
-                memcpy(opt_data.data(), std::array<u8, 4>({0, 0, 0, 0}).data(),
-                       4); // Interface IP address
-                memcpy(opt_data.data() + 4, std::array<u8, 4>({0, 0, 0, 0}).data(),
-                       4); // Interface IP Mask
-                memcpy(opt_data.data() + 8, std::array<u8, 4>({0, 0, 0, 0}).data(),
-                       4); // Interface IP Broadcast
-                LOG_ERROR(Service_SOC, "GetNetworkOpt level={} opt_name={} opt_len>=12 STUBBED",
-                          level, opt_name);
+                InterfaceInfo interface_info;
+                if (GetDefaultInterfaceInfo(&interface_info)) {
+                    memcpy(opt_data.data(), &interface_info.address, 4);
+                    memcpy(opt_data.data() + 4, &interface_info.netmask, 4);
+                    memcpy(opt_data.data() + 8, &interface_info.broadcast, 4);
+                } else { // This never errors on 3DS, so set the output to 0
+                    memset(opt_data.data(), 0, 0xC);
+                }
             }
             if (opt_len >= 0x18) {
                 LOG_ERROR(Service_SOC, "GetNetworkOpt level={} opt_name={} opt_len>=24 STUBBED",
@@ -1245,6 +1240,138 @@ SOC_U::~SOC_U() {
 #ifdef _WIN32
     WSACleanup();
 #endif
+}
+
+bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
+    if (interface_info_cached) {
+        memcpy(out_info, &interface_info, sizeof(InterfaceInfo));
+        return true;
+    }
+
+    s64 sock_fd = -1;
+    bool interface_found = false;
+    struct hostent* s_in_ent = NULL;
+    struct sockaddr_in s_in = {.sin_family = AF_INET, .sin_port = htons(80), .sin_addr = {}};
+    socklen_t s_info_len = sizeof(struct sockaddr_in);
+    sockaddr_in s_info;
+
+    if ((s_in_ent = ::gethostbyname("conntest.nintendowifi.net")) == NULL ||
+        s_in_ent->h_addrtype != AF_INET) {
+        return false;
+    }
+    memcpy(&s_in.sin_addr, s_in_ent->h_addr, sizeof(s_in.sin_addr));
+
+    if ((sock_fd = ::socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        return false;
+    }
+
+    if (::connect(sock_fd, (struct sockaddr*)(&s_in), sizeof(struct sockaddr_in)) != 0) {
+        closesocket(sock_fd);
+        return false;
+    }
+
+    if (::getsockname(sock_fd, (struct sockaddr*)&s_info, &s_info_len) != 0 ||
+        s_info_len != sizeof(struct sockaddr_in)) {
+        closesocket(sock_fd);
+        return false;
+    }
+    closesocket(sock_fd);
+
+#ifdef _WIN32
+    sock_fd = WSASocket(AF_INET, SOCK_DGRAM, 0, 0, 0, 0);
+    if (sock_fd == SOCKET_ERROR) {
+        return false;
+    }
+
+    INTERFACE_INFO* interface_list = (INTERFACE_INFO*)malloc(100 * sizeof(INTERFACE_INFO));
+    unsigned long bytes_used;
+    if (interface_list == nullptr ||
+        WSAIoctl(sock_fd, SIO_GET_INTERFACE_LIST, 0, 0, interface_list,
+                 100 * sizeof(INTERFACE_INFO), &bytes_used, 0, 0) == SOCKET_ERROR) {
+        if (interface_list != nullptr) {
+            free(interface_list);
+        }
+        closesocket(sock_fd);
+        return false;
+    }
+    closesocket(sock_fd);
+
+    int num_interfaces = bytes_used / sizeof(INTERFACE_INFO);
+    for (int i = 0; i < num_interfaces; i++) {
+        if (((sockaddr*)&(interface_list[i].iiAddress))->sa_family == AF_INET &&
+            memcmp(&((sockaddr_in*)&(interface_list[i].iiAddress))->sin_addr.s_addr,
+                   &s_info.sin_addr.s_addr, sizeof(s_info.sin_addr.s_addr)) == 0) {
+            out_info->address = ((sockaddr_in*)&(interface_list[i].iiAddress))->sin_addr.s_addr;
+            out_info->netmask = ((sockaddr_in*)&(interface_list[i].iiNetmask))->sin_addr.s_addr;
+            out_info->broadcast =
+                ((sockaddr_in*)&(interface_list[i].iiBroadcastAddress))->sin_addr.s_addr;
+            interface_found = true;
+            {
+                char address[16] = {0}, netmask[16] = {0}, broadcast[16] = {0};
+                strncpy(address,
+                        inet_ntoa(((sockaddr_in*)&(interface_list[i].iiAddress))->sin_addr),
+                        sizeof(address) - 1);
+                strncpy(netmask,
+                        inet_ntoa(((sockaddr_in*)&(interface_list[i].iiNetmask))->sin_addr),
+                        sizeof(netmask) - 1);
+                strncpy(
+                    broadcast,
+                    inet_ntoa(((sockaddr_in*)&(interface_list[i].iiBroadcastAddress))->sin_addr),
+                    sizeof(broadcast) - 1);
+
+                LOG_DEBUG(Service_SOC, "Found interface: (addr: {}, netmask: {}, broadcast: {})",
+                          address, netmask, broadcast);
+            }
+            break;
+        }
+    }
+    free(interface_list);
+#else
+    struct ifaddrs* ifaddr;
+    struct ifaddrs* ifa;
+    if (getifaddrs(&ifaddr) == -1) {
+        return false;
+    }
+
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr && ifa->ifa_addr->sa_family == AF_INET) {
+            struct sockaddr_in* in_address = (struct sockaddr_in*)ifa->ifa_addr;
+            struct sockaddr_in* in_netmask = (struct sockaddr_in*)ifa->ifa_netmask;
+            struct sockaddr_in* in_broadcast = (struct sockaddr_in*)ifa->ifa_broadaddr;
+            if (in_address->sin_addr.s_addr == s_info.sin_addr.s_addr) {
+                out_info->address = in_address->sin_addr.s_addr;
+                out_info->netmask = in_netmask->sin_addr.s_addr;
+                out_info->broadcast = in_broadcast->sin_addr.s_addr;
+                interface_found = true;
+                {
+                    char address[16] = {0}, netmask[16] = {0}, broadcast[16] = {0};
+                    strncpy(address, inet_ntoa(in_address->sin_addr), sizeof(address) - 1);
+                    strncpy(netmask, inet_ntoa(in_netmask->sin_addr), sizeof(netmask) - 1);
+                    strncpy(broadcast, inet_ntoa(in_broadcast->sin_addr), sizeof(broadcast) - 1);
+
+                    LOG_DEBUG(Service_SOC,
+                              "Found interface: (addr: {}, netmask: {}, broadcast: {})", address,
+                              netmask, broadcast);
+                }
+            }
+        }
+    }
+    freeifaddrs(ifaddr);
+#endif // _WIN32
+    if (interface_found) {
+        memcpy(&interface_info, out_info, sizeof(InterfaceInfo));
+        interface_info_cached = true;
+    } else {
+        LOG_DEBUG(Service_SOC, "Interface not found");
+    }
+    return interface_found;
+}
+
+std::shared_ptr<SOC_U> GetService(Core::System& system) {
+    auto it = system.Kernel().named_ports.find("soc:u");
+    if (it != system.Kernel().named_ports.end())
+        return std::static_pointer_cast<SOC_U>(it->second->GetServerPort()->hle_handler);
+    return nullptr;
 }
 
 void InstallInterfaces(Core::System& system) {

@@ -40,6 +40,15 @@ public:
     SOC_U();
     ~SOC_U();
 
+    struct InterfaceInfo {
+        u32 address;
+        u32 netmask;
+        u32 broadcast;
+    };
+
+    // Gets the interface info that is able to reach the internet.
+    bool GetDefaultInterfaceInfo(InterfaceInfo* out_info);
+
 private:
     static constexpr ResultCode ERR_INVALID_HANDLE =
         ResultCode(ErrorDescription::InvalidHandle, ErrorModule::SOC, ErrorSummary::InvalidArgument,
@@ -103,6 +112,13 @@ private:
     friend struct CTRPollFD;
     std::unordered_map<u32, SocketHolder> open_sockets;
 
+    /// Cache interface info for the current session
+    /// These two fields are not saved to savestates on purpose
+    /// as network interfaces may change and it's better to.
+    /// obtain them again between play sessions.
+    bool interface_info_cached = false;
+    InterfaceInfo interface_info;
+
     template <class Archive>
     void serialize(Archive& ar, const unsigned int) {
         ar& boost::serialization::base_object<Kernel::SessionRequestHandler>(*this);
@@ -111,6 +127,8 @@ private:
     }
     friend class boost::serialization::access;
 };
+
+std::shared_ptr<SOC_U> GetService(Core::System& system);
 
 void InstallInterfaces(Core::System& system);
 
