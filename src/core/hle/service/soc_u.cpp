@@ -34,6 +34,7 @@
 #endif // _MSC_VER
 #else
 #include <cerrno>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
 #include <netdb.h>
@@ -855,27 +856,22 @@ void SOC_U::GetHostByName(Kernel::HLERequestContext& ctx) {
     auto host_name = rp.PopStaticBuffer();
 
     struct hostent* result = ::gethostbyname(reinterpret_cast<char*>(host_name.data()));
-    HostByNameData* hbn_data_ptr =
-        reinterpret_cast<HostByNameData*>(malloc(sizeof(HostByNameData)));
-    if (hbn_data_ptr == nullptr) {
-        ASSERT_MSG(false, "Failed to allocate memory for HostByNameData");
-        return;
-    }
-    HostByNameData& hbn_data = *hbn_data_ptr;
-    memset(&hbn_data, 0, sizeof(HostByNameData));
+
+    std::vector<u8> hbn_data_out(sizeof(HostByNameData));
+    HostByNameData& hbn_data = *reinterpret_cast<HostByNameData*>(hbn_data_out.data());
     int ret = 0;
 
     if (result) {
         hbn_data.addr_type = result->h_addrtype;
         hbn_data.addr_len = result->h_length;
-        strncpy(hbn_data.hName, result->h_name, 255);
+        std::strncpy(hbn_data.hName, result->h_name, 255);
         int count;
         for (count = 0; count < HostByNameData::max_entries; count++) {
             char* curr = result->h_aliases[count];
             if (!curr) {
                 break;
             }
-            strncpy(hbn_data.aliases[count], curr, 255);
+            std::strncpy(hbn_data.aliases[count], curr, 255);
         }
         hbn_data.alias_count = count;
         for (count = 0; count < HostByNameData::max_entries; count++) {
@@ -883,21 +879,17 @@ void SOC_U::GetHostByName(Kernel::HLERequestContext& ctx) {
             if (!curr) {
                 break;
             }
-            memcpy(hbn_data.addreses[count], curr, result->h_length);
+            std::memcpy(hbn_data.addreses[count], curr, result->h_length);
         }
         hbn_data.addr_count = count;
     } else {
         ret = -1;
     }
 
-    std::vector<u8> hbn_data_out(sizeof(HostByNameData));
-    std::memcpy(hbn_data_out.data(), &hbn_data, sizeof(HostByNameData));
-
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(RESULT_SUCCESS);
     rb.Push(ret);
     rb.PushStaticBuffer(std::move(hbn_data_out), 0);
-    free(hbn_data_ptr);
 }
 
 void SOC_U::GetPeerName(Kernel::HLERequestContext& ctx) {
@@ -1063,29 +1055,29 @@ void SOC_U::GetNetworkOpt(Kernel::HLERequestContext& ctx) {
     u32 level = rp.Pop<u32>();
     u32 opt_name = rp.Pop<u32>();
     u32 opt_len = rp.Pop<u32>();
-    u32 err = 0xffff8025;
     std::vector<u8> opt_data(opt_len);
 
+    /// Error returned if the level/opt_name combination is not available
+    u32 err = 0xffff8025;
+
+    /// Only available level is 0xfffe, any other value returns an error
     if (level == 0xfffe) {
-        if (opt_name == 0x4003) {
+        if (opt_name == 0x4003) { /// Get IP Info
             if (opt_len >= 0xC) {
                 InterfaceInfo interface_info;
                 if (GetDefaultInterfaceInfo(&interface_info)) {
                     memcpy(opt_data.data(), &interface_info.address, 4);
                     memcpy(opt_data.data() + 4, &interface_info.netmask, 4);
                     memcpy(opt_data.data() + 8, &interface_info.broadcast, 4);
-                } else { // This never errors on 3DS, so set the output to 0
-                    memset(opt_data.data(), 0, 0xC);
                 }
             }
             if (opt_len >= 0x18) {
                 LOG_ERROR(Service_SOC, "GetNetworkOpt level={} opt_name={} opt_len>=24 STUBBED",
                           level, opt_name);
-                memset(opt_data.data() + 0xC, 0, 0xC);
             }
             err = 0;
         } else {
-            LOG_ERROR(Service_SOC, "Unknown GetNetworkOpt opt_name={}", opt_name);
+            LOG_ERROR(Service_SOC, "GetNetworkOpt opt_name={} STUBBED", opt_name);
         }
     } else {
         LOG_ERROR(Service_SOC, "Unknown GetNetworkOpt level={}", level);
@@ -1311,13 +1303,13 @@ bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
             interface_found = true;
             {
                 char address[16] = {0}, netmask[16] = {0}, broadcast[16] = {0};
-                strncpy(address,
-                        inet_ntoa(((sockaddr_in*)&(interface_list[i].iiAddress))->sin_addr),
-                        sizeof(address) - 1);
-                strncpy(netmask,
-                        inet_ntoa(((sockaddr_in*)&(interface_list[i].iiNetmask))->sin_addr),
-                        sizeof(netmask) - 1);
-                strncpy(
+                std::strncpy(address,
+                             inet_ntoa(((sockaddr_in*)&(interface_list[i].iiAddress))->sin_addr),
+                             sizeof(address) - 1);
+                std::strncpy(netmask,
+                             inet_ntoa(((sockaddr_in*)&(interface_list[i].iiNetmask))->sin_addr),
+                             sizeof(netmask) - 1);
+                std::strncpy(
                     broadcast,
                     inet_ntoa(((sockaddr_in*)&(interface_list[i].iiBroadcastAddress))->sin_addr),
                     sizeof(broadcast) - 1);
@@ -1348,9 +1340,10 @@ bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
                 interface_found = true;
                 {
                     char address[16] = {0}, netmask[16] = {0}, broadcast[16] = {0};
-                    strncpy(address, inet_ntoa(in_address->sin_addr), sizeof(address) - 1);
-                    strncpy(netmask, inet_ntoa(in_netmask->sin_addr), sizeof(netmask) - 1);
-                    strncpy(broadcast, inet_ntoa(in_broadcast->sin_addr), sizeof(broadcast) - 1);
+                    std::strncpy(address, inet_ntoa(in_address->sin_addr), sizeof(address) - 1);
+                    std::strncpy(netmask, inet_ntoa(in_netmask->sin_addr), sizeof(netmask) - 1);
+                    std::strncpy(broadcast, inet_ntoa(in_broadcast->sin_addr),
+                                 sizeof(broadcast) - 1);
 
                     LOG_DEBUG(Service_SOC,
                               "Found interface: (addr: {}, netmask: {}, broadcast: {})", address,

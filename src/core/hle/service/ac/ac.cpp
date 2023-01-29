@@ -93,16 +93,16 @@ void Module::Interface::GetCloseResult(Kernel::HLERequestContext& ctx) {
 void Module::Interface::GetWifiStatus(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0xD, 0, 0);
 
-    // TODO(purpasmart96): This function is only a stub,
-    // it returns a valid result without implementing full functionality.
-
     std::shared_ptr<SOC::SOC_U> socu_module = SOC::GetService(Core::System::GetInstance());
     SOC::SOC_U::InterfaceInfo interface_info;
     bool can_reach_internet = socu_module->GetDefaultInterfaceInfo(&interface_info);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u32>(can_reach_internet ? (Settings::values.is_new_3ds ? 2 : 1) : 0);
+    rb.Push<u32>(static_cast<u32>(can_reach_internet ? (Settings::values.is_new_3ds
+                                                            ? WifiStatus::STATUS_CONNECTED_N3DS
+                                                            : WifiStatus::STATUS_CONNECTED_O3DS)
+                                                     : WifiStatus::STATUS_DISCONNECTED));
 
     LOG_WARNING(Service_AC, "(STUBBED) called");
 }
