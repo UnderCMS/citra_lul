@@ -1238,8 +1238,8 @@ SOC_U::~SOC_U() {
 }
 
 bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
-    if (interface_info_cached) {
-        memcpy(out_info, &interface_info, sizeof(InterfaceInfo));
+    if (this->interface_info_cached) {
+        memcpy(out_info, &this->interface_info, sizeof(InterfaceInfo));
         return true;
     }
 
@@ -1278,14 +1278,12 @@ bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
         return false;
     }
 
-    INTERFACE_INFO* interface_list = (INTERFACE_INFO*)malloc(100 * sizeof(INTERFACE_INFO));
+    const int max_interfaces = 100;
+    std::vector<INTERFACE_INFO> interface_list_vec(max_interfaces);
+    INTERFACE_INFO* interface_list = reinterpret_cast<INTERFACE_INFO*>(interface_list_vec.data());
     unsigned long bytes_used;
-    if (interface_list == nullptr ||
-        WSAIoctl(sock_fd, SIO_GET_INTERFACE_LIST, 0, 0, interface_list,
-                 100 * sizeof(INTERFACE_INFO), &bytes_used, 0, 0) == SOCKET_ERROR) {
-        if (interface_list != nullptr) {
-            free(interface_list);
-        }
+    if (WSAIoctl(sock_fd, SIO_GET_INTERFACE_LIST, 0, 0, interface_list,
+                 max_interfaces * sizeof(INTERFACE_INFO), &bytes_used, 0, 0) == SOCKET_ERROR) {
         closesocket(sock_fd);
         return false;
     }
@@ -1320,7 +1318,6 @@ bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
             break;
         }
     }
-    free(interface_list);
 #else
     struct ifaddrs* ifaddr;
     struct ifaddrs* ifa;
@@ -1355,8 +1352,8 @@ bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
     freeifaddrs(ifaddr);
 #endif // _WIN32
     if (interface_found) {
-        memcpy(&interface_info, out_info, sizeof(InterfaceInfo));
-        interface_info_cached = true;
+        memcpy(&this->interface_info, out_info, sizeof(InterfaceInfo));
+        this->interface_info_cached = true;
     } else {
         LOG_DEBUG(Service_SOC, "Interface not found");
     }
@@ -1364,10 +1361,7 @@ bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
 }
 
 std::shared_ptr<SOC_U> GetService(Core::System& system) {
-    auto it = system.Kernel().named_ports.find("soc:u");
-    if (it != system.Kernel().named_ports.end())
-        return std::static_pointer_cast<SOC_U>(it->second->GetServerPort()->hle_handler);
-    return nullptr;
+    return system.ServiceManager().GetService<SOC_U>("cfg:u");
 }
 
 void InstallInterfaces(Core::System& system) {

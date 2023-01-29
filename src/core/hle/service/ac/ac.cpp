@@ -92,10 +92,13 @@ void Module::Interface::GetCloseResult(Kernel::HLERequestContext& ctx) {
 
 void Module::Interface::GetWifiStatus(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0xD, 0, 0);
+    bool can_reach_internet = false;
 
     std::shared_ptr<SOC::SOC_U> socu_module = SOC::GetService(Core::System::GetInstance());
-    SOC::SOC_U::InterfaceInfo interface_info;
-    bool can_reach_internet = socu_module->GetDefaultInterfaceInfo(&interface_info);
+    if (socu_module) {
+        SOC::SOC_U::InterfaceInfo interface_info;
+        can_reach_internet = socu_module->GetDefaultInterfaceInfo(&interface_info);
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
     rb.Push(RESULT_SUCCESS);
