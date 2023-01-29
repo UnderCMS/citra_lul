@@ -102,8 +102,7 @@ void Module::Interface::GetWifiStatus(Kernel::HLERequestContext& ctx) {
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u32>(can_reach_internet ? (Settings::values.is_new_3ds ? 2 : 1)
-                                    : 0); // Connection type set to none
+    rb.Push<u32>(can_reach_internet ? (Settings::values.is_new_3ds ? 2 : 1) : 0);
 
     LOG_WARNING(Service_AC, "(STUBBED) called");
 }
