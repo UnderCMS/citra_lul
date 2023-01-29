@@ -106,8 +106,6 @@ void Module::Interface::GetWifiStatus(Kernel::HLERequestContext& ctx) {
                                                             ? WifiStatus::STATUS_CONNECTED_N3DS
                                                             : WifiStatus::STATUS_CONNECTED_O3DS)
                                                      : WifiStatus::STATUS_DISCONNECTED));
-
-    LOG_WARNING(Service_AC, "(STUBBED) called");
 }
 
 void Module::Interface::GetInfraPriority(Kernel::HLERequestContext& ctx) {

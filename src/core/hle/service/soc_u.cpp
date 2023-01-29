@@ -181,6 +181,15 @@ static const std::unordered_map<int, int> sockopt_map = {{
     {0x1009, SO_ERROR},
 }};
 
+/// Converts a socket option from platform-specific to 3ds-specific
+static int TranslateSockOpt(int opt) {
+    auto found = sockopt_map.find(opt);
+    if (found != sockopt_map.end())
+        return found->second;
+
+    return opt;
+}
+
 /// Structure to represent the 3ds' pollfd structure, which is different than most implementations
 struct CTRPollFD {
     u32 fd; ///< Socket handle
@@ -1000,7 +1009,8 @@ void SOC_U::GetSockOpt(Kernel::HLERequestContext& ctx) {
 #endif
     } else {
         char* optval_data = reinterpret_cast<char*>(optval.data());
-        err = ::getsockopt(fd_info->second.socket_fd, level, optname, optval_data, &optlen);
+        err = ::getsockopt(fd_info->second.socket_fd, level, TranslateSockOpt(optname), optval_data,
+                           &optlen);
         if (err == SOCKET_ERROR_VALUE) {
             err = TranslateError(GET_ERRNO);
         }
@@ -1038,7 +1048,8 @@ void SOC_U::SetSockOpt(Kernel::HLERequestContext& ctx) {
 #endif
     } else {
         const char* optval_data = reinterpret_cast<const char*>(optval.data());
-        err = static_cast<u32>(::setsockopt(fd_info->second.socket_fd, level, optname, optval_data,
+        err = static_cast<u32>(::setsockopt(fd_info->second.socket_fd, level,
+                                            TranslateSockOpt(optname), optval_data,
                                             static_cast<socklen_t>(optval.size())));
         if (err == SOCKET_ERROR_VALUE) {
             err = TranslateError(GET_ERRNO);
