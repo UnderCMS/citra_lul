@@ -74,6 +74,7 @@ private:
     void Accept(Kernel::HLERequestContext& ctx);
     void GetHostId(Kernel::HLERequestContext& ctx);
     void Close(Kernel::HLERequestContext& ctx);
+    void SendToOther(Kernel::HLERequestContext& ctx);
     void SendTo(Kernel::HLERequestContext& ctx);
     void RecvFromOther(Kernel::HLERequestContext& ctx);
     void RecvFrom(Kernel::HLERequestContext& ctx);

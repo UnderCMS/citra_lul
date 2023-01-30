@@ -166,7 +166,7 @@ static int TranslateError(int error) {
 /// Note: -1 = No effect/unavailable
 static const std::unordered_map<int, int> sockopt_map = {{
     {0x0004, SO_REUSEADDR},
-    {0x0080, -1},
+    {0x0080, SO_LINGER},
     {0x0100, -1},
     {0x1001, SO_SNDBUF},
     {0x1002, SO_RCVBUF},
@@ -620,6 +620,48 @@ void SOC_U::Close(Kernel::HLERequestContext& ctx) {
     rb.Push(ret);
 }
 
+void SOC_U::SendToOther(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx, 0x09, 4, 6);
+    u32 socket_handle = rp.Pop<u32>();
+    auto fd_info = open_sockets.find(socket_handle);
+    if (fd_info == open_sockets.end()) {
+        IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
+        rb.Push(ERR_INVALID_HANDLE);
+        return;
+    }
+    u32 len = rp.Pop<u32>();
+    u32 flags = rp.Pop<u32>();
+    u32 addr_len = rp.Pop<u32>();
+    rp.PopPID();
+    auto dest_addr_buff = rp.PopStaticBuffer();
+
+    auto input_mapped_buff = rp.PopMappedBuffer();
+    std::vector<u8> input_buff(len);
+    input_mapped_buff.Read(input_buff.data(), 0,
+                           std::min(input_mapped_buff.GetSize(), static_cast<size_t>(len)));
+
+    s32 ret = -1;
+    PreTimerAdjust();
+    if (addr_len > 0) {
+        CTRSockAddr ctr_dest_addr;
+        std::memcpy(&ctr_dest_addr, dest_addr_buff.data(), sizeof(ctr_dest_addr));
+        sockaddr dest_addr = CTRSockAddr::ToPlatform(ctr_dest_addr);
+        ret = ::sendto(fd_info->second.socket_fd, reinterpret_cast<const char*>(input_buff.data()),
+                       len, flags, &dest_addr, sizeof(dest_addr));
+    } else {
+        ret = ::sendto(fd_info->second.socket_fd, reinterpret_cast<const char*>(input_buff.data()),
+                       len, flags, nullptr, 0);
+    }
+    PostTimerAdjust();
+
+    if (ret == SOCKET_ERROR_VALUE)
+        ret = TranslateError(GET_ERRNO);
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
+    rb.Push(RESULT_SUCCESS);
+    rb.Push(ret);
+}
+
 void SOC_U::SendTo(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x0A, 4, 6);
     u32 socket_handle = rp.Pop<u32>();
@@ -860,8 +902,8 @@ void SOC_U::Shutdown(Kernel::HLERequestContext& ctx) {
 
 void SOC_U::GetHostByName(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x0D, 2, 2);
-    u32 name_len = rp.Pop<u32>();
-    u32 out_buf_len = rp.Pop<u32>();
+    [[maybe_unused]] u32 name_len = rp.Pop<u32>();
+    [[maybe_unused]] u32 out_buf_len = rp.Pop<u32>();
     auto host_name = rp.PopStaticBuffer();
 
     struct hostent* result = ::gethostbyname(reinterpret_cast<char*>(host_name.data()));
@@ -874,7 +916,7 @@ void SOC_U::GetHostByName(Kernel::HLERequestContext& ctx) {
         hbn_data.addr_type = result->h_addrtype;
         hbn_data.addr_len = result->h_length;
         std::strncpy(hbn_data.hName, result->h_name, 255);
-        int count;
+        u16 count;
         for (count = 0; count < HostByNameData::max_entries; count++) {
             char* curr = result->h_aliases[count];
             if (!curr) {
@@ -993,6 +1035,10 @@ void SOC_U::GetSockOpt(Kernel::HLERequestContext& ctx) {
         return;
     }
     u32 level = rp.Pop<u32>();
+    // Translate 3DS SOL_SOCKET to platform SOL_SOCKET
+    if (level == 0xffff) {
+        level = SOL_SOCKET;
+    }
     s32 optname = rp.Pop<s32>();
     socklen_t optlen = static_cast<socklen_t>(rp.Pop<u32>());
     rp.PopPID();
@@ -1032,7 +1078,11 @@ void SOC_U::SetSockOpt(Kernel::HLERequestContext& ctx) {
         rb.Push(ERR_INVALID_HANDLE);
         return;
     }
-    const auto level = rp.Pop<u32>();
+    auto level = rp.Pop<u32>();
+    // Translate 3DS SOL_SOCKET to platform SOL_SOCKET
+    if (level == 0xffff) {
+        level = SOL_SOCKET;
+    }
     const auto optname = rp.Pop<s32>();
     [[maybe_unused]] const auto optlen = static_cast<socklen_t>(rp.Pop<u32>());
     rp.PopPID();
@@ -1206,7 +1256,7 @@ SOC_U::SOC_U() : ServiceFramework("soc:U") {
         {0x00060084, &SOC_U::Connect, "Connect"},
         {0x00070104, &SOC_U::RecvFromOther, "recvfrom_other"},
         {0x00080102, &SOC_U::RecvFrom, "RecvFrom"},
-        {0x00090106, nullptr, "sendto_other"},
+        {0x00090106, &SOC_U::SendToOther, "SendToOther"},
         {0x000A0106, &SOC_U::SendTo, "SendTo"},
         {0x000B0042, &SOC_U::Close, "Close"},
         {0x000C0082, &SOC_U::Shutdown, "Shutdown"},
