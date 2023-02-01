@@ -511,7 +511,7 @@ void SOC_U::Fcntl(Kernel::HLERequestContext& ctx) {
         if (ctr_arg & 4) // O_NONBLOCK
             flags |= O_NONBLOCK;
 
-        iter->second.blocking = ((ctr_arg & 4) == 0);
+        fd_info->second.blocking = ((ctr_arg & 4) == 0);
 
         int ret = ::fcntl(fd_info->second.socket_fd, F_SETFL, flags);
         if (ret == SOCKET_ERROR_VALUE) {
@@ -855,8 +855,6 @@ void SOC_U::Poll(Kernel::HLERequestContext& ctx) {
 
         ret = TranslateError(GET_ERRNO);
     }
-
-    size_t test = platform_pollfd.size();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(RESULT_SUCCESS);
