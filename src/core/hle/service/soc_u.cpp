@@ -155,10 +155,10 @@ static const std::unordered_map<int, int> error_map = {{
 
 /// Converts a network error from platform-specific to 3ds-specific
 static int TranslateError(int error) {
-    auto found = error_map.find(error);
-    if (found != error_map.end())
+    const auto& found = error_map.find(error);
+    if (found != error_map.end()) {
         return -found->second;
-
+    }
     return error;
 }
 
@@ -183,10 +183,10 @@ static const std::unordered_map<int, int> sockopt_map = {{
 
 /// Converts a socket option from platform-specific to 3ds-specific
 static int TranslateSockOpt(int opt) {
-    auto found = sockopt_map.find(opt);
-    if (found != sockopt_map.end())
+    const auto& found = sockopt_map.find(opt);
+    if (found != sockopt_map.end()) {
         return found->second;
-
+    }
     return opt;
 }
 
@@ -367,15 +367,20 @@ struct CTRAddrInfo {
 static_assert(sizeof(CTRAddrInfo) == 0x130, "Size of CTRAddrInfo is not correct");
 
 void SOC_U::PreTimerAdjust() {
-    timer_adjust_handle = Core::System::GetInstance().GetRunningCore().GetTimer().StartAdjust();
+    adjust_value_last = std::chrono::steady_clock::now();
 }
 
-void SOC_U::PostTimerAdjust() {
-    Core::System::GetInstance().GetRunningCore().GetTimer().EndAdjust(timer_adjust_handle);
+void SOC_U::PostTimerAdjust(Kernel::HLERequestContext& ctx, const std::string& caller_method) {
+    std::chrono::time_point<std::chrono::steady_clock> new_timer = std::chrono::steady_clock::now();
+    ASSERT(new_timer >= adjust_value_last);
+    ctx.SleepClientThread(
+        fmt::format("soc_u::{}", caller_method),
+        std::chrono::duration_cast<std::chrono::nanoseconds>(new_timer - adjust_value_last),
+        nullptr);
 }
 
 void SOC_U::CleanupSockets() {
-    for (auto sock : open_sockets)
+    for (const auto sock : open_sockets)
         closesocket(sock.second.socket_fd);
     open_sockets.clear();
 }
@@ -506,6 +511,8 @@ void SOC_U::Fcntl(Kernel::HLERequestContext& ctx) {
         if (ctr_arg & 4) // O_NONBLOCK
             flags |= O_NONBLOCK;
 
+        iter->second.blocking = ((ctr_arg & 4) == 0);
+
         int ret = ::fcntl(fd_info->second.socket_fd, F_SETFL, flags);
         if (ret == SOCKET_ERROR_VALUE) {
             posix_ret = TranslateError(GET_ERRNO);
@@ -556,9 +563,7 @@ void SOC_U::Accept(Kernel::HLERequestContext& ctx) {
     rp.PopPID();
     sockaddr addr;
     socklen_t addr_len = sizeof(addr);
-    PreTimerAdjust();
     u32 ret = static_cast<u32>(::accept(fd_info->second.socket_fd, &addr, &addr_len));
-    PostTimerAdjust();
 
     if (static_cast<s32>(ret) != SOCKET_ERROR_VALUE) {
         open_sockets[ret] = {ret, true};
@@ -582,10 +587,10 @@ void SOC_U::Accept(Kernel::HLERequestContext& ctx) {
 void SOC_U::GetHostId(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x16, 0, 0);
 
-    InterfaceInfo info;
-    u32 host_id = -1;
-    if (GetDefaultInterfaceInfo(&info)) {
-        host_id = info.address;
+    u32 host_id = 0;
+    auto info = GetDefaultInterfaceInfo();
+    if (info.has_value()) {
+        host_id = info->address;
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
@@ -606,9 +611,7 @@ void SOC_U::Close(Kernel::HLERequestContext& ctx) {
 
     s32 ret = 0;
 
-    PreTimerAdjust();
     ret = closesocket(fd_info->second.socket_fd);
-    PostTimerAdjust();
 
     open_sockets.erase(socket_handle);
 
@@ -622,18 +625,18 @@ void SOC_U::Close(Kernel::HLERequestContext& ctx) {
 
 void SOC_U::SendToOther(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x09, 4, 6);
-    u32 socket_handle = rp.Pop<u32>();
-    auto fd_info = open_sockets.find(socket_handle);
+    const u32 socket_handle = rp.Pop<u32>();
+    const auto fd_info = open_sockets.find(socket_handle);
     if (fd_info == open_sockets.end()) {
         IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
         rb.Push(ERR_INVALID_HANDLE);
         return;
     }
-    u32 len = rp.Pop<u32>();
-    u32 flags = rp.Pop<u32>();
-    u32 addr_len = rp.Pop<u32>();
+    const u32 len = rp.Pop<u32>();
+    const u32 flags = rp.Pop<u32>();
+    const u32 addr_len = rp.Pop<u32>();
     rp.PopPID();
-    auto dest_addr_buff = rp.PopStaticBuffer();
+    const auto dest_addr_buffer = rp.PopStaticBuffer();
 
     auto input_mapped_buff = rp.PopMappedBuffer();
     std::vector<u8> input_buff(len);
@@ -641,10 +644,9 @@ void SOC_U::SendToOther(Kernel::HLERequestContext& ctx) {
                            std::min(input_mapped_buff.GetSize(), static_cast<size_t>(len)));
 
     s32 ret = -1;
-    PreTimerAdjust();
     if (addr_len > 0) {
         CTRSockAddr ctr_dest_addr;
-        std::memcpy(&ctr_dest_addr, dest_addr_buff.data(), sizeof(ctr_dest_addr));
+        std::memcpy(&ctr_dest_addr, dest_addr_buffer.data(), sizeof(ctr_dest_addr));
         sockaddr dest_addr = CTRSockAddr::ToPlatform(ctr_dest_addr);
         ret = ::sendto(fd_info->second.socket_fd, reinterpret_cast<const char*>(input_buff.data()),
                        len, flags, &dest_addr, sizeof(dest_addr));
@@ -652,10 +654,10 @@ void SOC_U::SendToOther(Kernel::HLERequestContext& ctx) {
         ret = ::sendto(fd_info->second.socket_fd, reinterpret_cast<const char*>(input_buff.data()),
                        len, flags, nullptr, 0);
     }
-    PostTimerAdjust();
 
-    if (ret == SOCKET_ERROR_VALUE)
+    if (ret == SOCKET_ERROR_VALUE) {
         ret = TranslateError(GET_ERRNO);
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
     rb.Push(RESULT_SUCCESS);
@@ -679,7 +681,6 @@ void SOC_U::SendTo(Kernel::HLERequestContext& ctx) {
     auto dest_addr_buff = rp.PopStaticBuffer();
 
     s32 ret = -1;
-    PreTimerAdjust();
     if (addr_len > 0) {
         CTRSockAddr ctr_dest_addr;
         std::memcpy(&ctr_dest_addr, dest_addr_buff.data(), sizeof(ctr_dest_addr));
@@ -690,7 +691,6 @@ void SOC_U::SendTo(Kernel::HLERequestContext& ctx) {
         ret = ::sendto(fd_info->second.socket_fd, reinterpret_cast<const char*>(input_buff.data()),
                        len, flags, nullptr, 0);
     }
-    PostTimerAdjust();
 
     if (ret == SOCKET_ERROR_VALUE)
         ret = TranslateError(GET_ERRNO);
@@ -722,7 +722,10 @@ void SOC_U::RecvFromOther(Kernel::HLERequestContext& ctx) {
     socklen_t src_addr_len = sizeof(src_addr);
 
     s32 ret = -1;
-    PreTimerAdjust();
+    if (fd_info->second.blocking) {
+        PreTimerAdjust();
+    }
+
     if (addr_len > 0) {
         ret = ::recvfrom(fd_info->second.socket_fd, reinterpret_cast<char*>(output_buff.data()),
                          len, flags, &src_addr, &src_addr_len);
@@ -735,7 +738,9 @@ void SOC_U::RecvFromOther(Kernel::HLERequestContext& ctx) {
                          len, flags, NULL, 0);
         addr_buff.resize(0);
     }
-    PostTimerAdjust();
+    if (fd_info->second.blocking) {
+        PostTimerAdjust(ctx, "RecvFromOther");
+    }
     if (ret == SOCKET_ERROR_VALUE) {
         ret = TranslateError(GET_ERRNO);
     } else {
@@ -773,7 +778,9 @@ void SOC_U::RecvFrom(Kernel::HLERequestContext& ctx) {
     socklen_t src_addr_len = sizeof(src_addr);
 
     s32 ret = -1;
-    PreTimerAdjust();
+    if (fd_info->second.blocking) {
+        PreTimerAdjust();
+    }
     if (addr_len > 0) {
         // Only get src adr if input adr available
         ret = ::recvfrom(fd_info->second.socket_fd, reinterpret_cast<char*>(output_buff.data()),
@@ -787,7 +794,9 @@ void SOC_U::RecvFrom(Kernel::HLERequestContext& ctx) {
                          len, flags, NULL, 0);
         addr_buff.resize(0);
     }
-    PostTimerAdjust();
+    if (fd_info->second.blocking) {
+        PostTimerAdjust(ctx, "RecvFrom");
+    }
 
     s32 total_received = ret;
     if (ret == SOCKET_ERROR_VALUE) {
@@ -824,9 +833,13 @@ void SOC_U::Poll(Kernel::HLERequestContext& ctx) {
         platform_pollfd[i] = CTRPollFD::ToPlatform(*this, ctr_fds[i]);
     }
 
-    PreTimerAdjust();
+    if (timeout) {
+        PreTimerAdjust();
+    }
     s32 ret = ::poll(platform_pollfd.data(), nfds, timeout);
-    PostTimerAdjust();
+    if (timeout) {
+        PostTimerAdjust(ctx, "Poll");
+    }
 
     // Now update the output 3ds_pollfd structure
     for (u32 i = 0; i < nfds; i++) {
@@ -915,14 +928,14 @@ void SOC_U::GetHostByName(Kernel::HLERequestContext& ctx) {
     if (result) {
         hbn_data.addr_type = result->h_addrtype;
         hbn_data.addr_len = result->h_length;
-        std::strncpy(hbn_data.hName, result->h_name, 255);
+        std::strncpy(hbn_data.hName.data(), result->h_name, 255);
         u16 count;
         for (count = 0; count < HostByNameData::max_entries; count++) {
             char* curr = result->h_aliases[count];
             if (!curr) {
                 break;
             }
-            std::strncpy(hbn_data.aliases[count], curr, 255);
+            std::strncpy(hbn_data.aliases[count].data(), curr, 255);
         }
         hbn_data.alias_count = count;
         for (count = 0; count < HostByNameData::max_entries; count++) {
@@ -930,7 +943,7 @@ void SOC_U::GetHostByName(Kernel::HLERequestContext& ctx) {
             if (!curr) {
                 break;
             }
-            std::memcpy(hbn_data.addreses[count], curr, result->h_length);
+            std::memcpy(hbn_data.addresses[count].data(), curr, result->h_length);
         }
         hbn_data.addr_count = count;
     } else {
@@ -994,9 +1007,13 @@ void SOC_U::Connect(Kernel::HLERequestContext& ctx) {
     std::memcpy(&ctr_input_addr, input_addr_buf.data(), sizeof(ctr_input_addr));
 
     sockaddr input_addr = CTRSockAddr::ToPlatform(ctr_input_addr);
-    PreTimerAdjust();
+    if (fd_info->second.blocking) {
+        PreTimerAdjust();
+    }
     s32 ret = ::connect(fd_info->second.socket_fd, &input_addr, sizeof(input_addr));
-    PostTimerAdjust();
+    if (fd_info->second.blocking) {
+        PostTimerAdjust(ctx, "Connect");
+    }
     if (ret != 0)
         ret = TranslateError(GET_ERRNO);
 
@@ -1036,7 +1053,7 @@ void SOC_U::GetSockOpt(Kernel::HLERequestContext& ctx) {
     }
     u32 level = rp.Pop<u32>();
     // Translate 3DS SOL_SOCKET to platform SOL_SOCKET
-    if (level == 0xffff) {
+    if (level == SOC_SOL_SOCKET) {
         level = SOL_SOCKET;
     }
     s32 optname = rp.Pop<s32>();
@@ -1080,7 +1097,7 @@ void SOC_U::SetSockOpt(Kernel::HLERequestContext& ctx) {
     }
     auto level = rp.Pop<u32>();
     // Translate 3DS SOL_SOCKET to platform SOL_SOCKET
-    if (level == 0xffff) {
+    if (level == SOC_SOL_SOCKET) {
         level = SOL_SOCKET;
     }
     const auto optname = rp.Pop<s32>();
@@ -1118,30 +1135,40 @@ void SOC_U::GetNetworkOpt(Kernel::HLERequestContext& ctx) {
     u32 opt_len = rp.Pop<u32>();
     std::vector<u8> opt_data(opt_len);
 
-    /// Error returned if the level/opt_name combination is not available
-    u32 err = 0xffff8025;
+    u32 err = SOC_ERR_INAVLID_ENUM_VALUE;
 
-    /// Only available level is 0xfffe, any other value returns an error
-    if (level == 0xfffe) {
-        if (opt_name == 0x4003) { /// Get IP Info
-            if (opt_len >= 0xC) {
-                InterfaceInfo interface_info;
-                if (GetDefaultInterfaceInfo(&interface_info)) {
-                    memcpy(opt_data.data(), &interface_info.address, 4);
-                    memcpy(opt_data.data() + 4, &interface_info.netmask, 4);
-                    memcpy(opt_data.data() + 8, &interface_info.broadcast, 4);
+    /// Only available level is SOC_SOL_CONFIG, any other value returns an error
+    if (level == SOC_SOL_CONFIG) {
+        switch (static_cast<NetworkOpt>(opt_name)) {
+        case NetworkOpt::NETOPT_MAC_ADDRESS: {
+            if (opt_len >= 6) {
+                u8 fake_mac[6] = {0};
+                memcpy(opt_data.data(), fake_mac, sizeof(fake_mac));
+            }
+            LOG_WARNING(Service_SOC, "(STUBBED) called, level={} opt_name={}", level, opt_name);
+            err = 0;
+        } break;
+        case NetworkOpt::NETOPT_IP_INFO: {
+            if (opt_len >= sizeof(InterfaceInfo)) {
+                InterfaceInfo& out_info = *reinterpret_cast<InterfaceInfo*>(opt_data.data());
+                auto info = GetDefaultInterfaceInfo();
+                if (info.has_value()) {
+                    out_info = info.value();
                 }
             }
-            if (opt_len >= 0x18) {
-                LOG_ERROR(Service_SOC, "GetNetworkOpt level={} opt_name={} opt_len>=24 STUBBED",
+            // Extra data not used normally, takes 0xC bytes more
+            if (opt_len >= sizeof(InterfaceInfo) + 0xC) {
+                LOG_ERROR(Service_SOC, "(STUBBED) called, level={} opt_name={} opt_len >= 24",
                           level, opt_name);
             }
             err = 0;
-        } else {
-            LOG_ERROR(Service_SOC, "GetNetworkOpt opt_name={} STUBBED", opt_name);
+        } break;
+        default:
+            LOG_ERROR(Service_SOC, "(STUBBED) called, level={} opt_name={}", level, opt_name);
+            break;
         }
     } else {
-        LOG_ERROR(Service_SOC, "Unknown GetNetworkOpt level={}", level);
+        LOG_ERROR(Service_SOC, "Unknown level={}", level);
     }
 
     if (err != 0) {
@@ -1298,45 +1325,39 @@ SOC_U::~SOC_U() {
 #endif
 }
 
-bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
+std::optional<SOC_U::InterfaceInfo> SOC_U::GetDefaultInterfaceInfo() {
     if (this->interface_info_cached) {
-        memcpy(out_info, &this->interface_info, sizeof(InterfaceInfo));
-        return true;
+        return InterfaceInfo(this->interface_info);
     }
 
+    InterfaceInfo ret;
     s64 sock_fd = -1;
     bool interface_found = false;
-    struct hostent* s_in_ent = NULL;
-    struct sockaddr_in s_in = {.sin_family = AF_INET, .sin_port = htons(80), .sin_addr = {}};
+    struct sockaddr_in s_in = {.sin_family = AF_INET, .sin_port = htons(53), .sin_addr = {}};
+    s_in.sin_addr.s_addr = inet_addr("8.8.8.8");
     socklen_t s_info_len = sizeof(struct sockaddr_in);
     sockaddr_in s_info;
 
-    if ((s_in_ent = ::gethostbyname("conntest.nintendowifi.net")) == NULL ||
-        s_in_ent->h_addrtype != AF_INET) {
-        return false;
-    }
-    memcpy(&s_in.sin_addr, s_in_ent->h_addr, sizeof(s_in.sin_addr));
-
     if ((sock_fd = ::socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        return false;
+        return std::nullopt;
     }
 
     if (::connect(sock_fd, (struct sockaddr*)(&s_in), sizeof(struct sockaddr_in)) != 0) {
         closesocket(sock_fd);
-        return false;
+        return std::nullopt;
     }
 
     if (::getsockname(sock_fd, (struct sockaddr*)&s_info, &s_info_len) != 0 ||
         s_info_len != sizeof(struct sockaddr_in)) {
         closesocket(sock_fd);
-        return false;
+        return std::nullopt;
     }
     closesocket(sock_fd);
 
 #ifdef _WIN32
     sock_fd = WSASocket(AF_INET, SOCK_DGRAM, 0, 0, 0, 0);
     if (sock_fd == SOCKET_ERROR) {
-        return false;
+        return std::nullopt;
     }
 
     const int max_interfaces = 100;
@@ -1346,7 +1367,7 @@ bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
     if (WSAIoctl(sock_fd, SIO_GET_INTERFACE_LIST, 0, 0, interface_list,
                  max_interfaces * sizeof(INTERFACE_INFO), &bytes_used, 0, 0) == SOCKET_ERROR) {
         closesocket(sock_fd);
-        return false;
+        return std::nullopt;
     }
     closesocket(sock_fd);
 
@@ -1355,9 +1376,9 @@ bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
         if (((sockaddr*)&(interface_list[i].iiAddress))->sa_family == AF_INET &&
             memcmp(&((sockaddr_in*)&(interface_list[i].iiAddress))->sin_addr.s_addr,
                    &s_info.sin_addr.s_addr, sizeof(s_info.sin_addr.s_addr)) == 0) {
-            out_info->address = ((sockaddr_in*)&(interface_list[i].iiAddress))->sin_addr.s_addr;
-            out_info->netmask = ((sockaddr_in*)&(interface_list[i].iiNetmask))->sin_addr.s_addr;
-            out_info->broadcast =
+            ret.address = ((sockaddr_in*)&(interface_list[i].iiAddress))->sin_addr.s_addr;
+            ret.netmask = ((sockaddr_in*)&(interface_list[i].iiNetmask))->sin_addr.s_addr;
+            ret.broadcast =
                 ((sockaddr_in*)&(interface_list[i].iiBroadcastAddress))->sin_addr.s_addr;
             interface_found = true;
             {
@@ -1383,7 +1404,7 @@ bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
     struct ifaddrs* ifaddr;
     struct ifaddrs* ifa;
     if (getifaddrs(&ifaddr) == -1) {
-        return false;
+        return std::nullopt;
     }
 
     for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
@@ -1392,9 +1413,9 @@ bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
             struct sockaddr_in* in_netmask = (struct sockaddr_in*)ifa->ifa_netmask;
             struct sockaddr_in* in_broadcast = (struct sockaddr_in*)ifa->ifa_broadaddr;
             if (in_address->sin_addr.s_addr == s_info.sin_addr.s_addr) {
-                out_info->address = in_address->sin_addr.s_addr;
-                out_info->netmask = in_netmask->sin_addr.s_addr;
-                out_info->broadcast = in_broadcast->sin_addr.s_addr;
+                ret.address = in_address->sin_addr.s_addr;
+                ret.netmask = in_netmask->sin_addr.s_addr;
+                ret.broadcast = in_broadcast->sin_addr.s_addr;
                 interface_found = true;
                 {
                     char address[16] = {0}, netmask[16] = {0}, broadcast[16] = {0};
@@ -1413,12 +1434,13 @@ bool SOC_U::GetDefaultInterfaceInfo(InterfaceInfo* out_info) {
     freeifaddrs(ifaddr);
 #endif // _WIN32
     if (interface_found) {
-        memcpy(&this->interface_info, out_info, sizeof(InterfaceInfo));
+        this->interface_info = ret;
         this->interface_info_cached = true;
+        return ret;
     } else {
         LOG_DEBUG(Service_SOC, "Interface not found");
+        return std::nullopt;
     }
-    return interface_found;
 }
 
 std::shared_ptr<SOC_U> GetService(Core::System& system) {

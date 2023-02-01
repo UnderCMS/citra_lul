@@ -24,7 +24,7 @@ struct SocketHolder {
     u32 socket_fd; ///< The socket descriptor
 #endif // _WIN32
 
-    bool blocking; ///< Whether the socket is blocking or not, it is only read on Windows.
+    bool blocking = true; ///< Whether the socket is blocking or not.
 
 private:
     template <class Archive>
@@ -47,12 +47,32 @@ public:
     };
 
     // Gets the interface info that is able to reach the internet.
-    bool GetDefaultInterfaceInfo(InterfaceInfo* out_info);
+    std::optional<InterfaceInfo> GetDefaultInterfaceInfo();
 
 private:
     static constexpr ResultCode ERR_INVALID_HANDLE =
         ResultCode(ErrorDescription::InvalidHandle, ErrorModule::SOC, ErrorSummary::InvalidArgument,
                    ErrorLevel::Permanent);
+    static constexpr u32 SOC_ERR_INAVLID_ENUM_VALUE = 0xFFFF8025;
+
+    static constexpr u32 SOC_SOL_CONFIG = 0xFFFE;
+    static constexpr u32 SOC_SOL_SOCKET = 0xFFFF;
+
+    // From
+    // https://github.com/devkitPro/libctru/blob/1de86ea38aec419744149daf692556e187d4678a/libctru/include/3ds/services/soc.h#L15
+    enum class NetworkOpt {
+        NETOPT_MAC_ADDRESS = 0x1004,     ///< The mac address of the interface
+        NETOPT_ARP_TABLE = 0x3002,       ///< The ARP table
+        NETOPT_IP_INFO = 0x4003,         ///< The current IP setup
+        NETOPT_IP_MTU = 0x4004,          ///< The value of the IP MTU
+        NETOPT_ROUTING_TABLE = 0x4006,   ///< The routing table
+        NETOPT_UDP_NUMBER = 0x8002,      ///< The number of sockets in the UDP table
+        NETOPT_UDP_TABLE = 0x8003,       ///< The table of opened UDP sockets
+        NETOPT_TCP_NUMBER = 0x9002,      ///< The number of sockets in the TCP table
+        NETOPT_TCP_TABLE = 0x9003,       ///< The table of opened TCP sockets
+        NETOPT_DNS_TABLE = 0xB003,       ///< The table of the DNS servers
+        NETOPT_DHCP_LEASE_TIME = 0xC001, ///< The DHCP lease time remaining, in seconds
+    };
 
     struct HostByNameData {
         static const u32 max_entries = 24;
@@ -61,9 +81,9 @@ private:
         u16_le addr_len;
         u16_le addr_count;
         u16_le alias_count;
-        char hName[256];
-        char aliases[max_entries][256];
-        u8 addreses[max_entries][16];
+        std::array<char, 256> hName;
+        std::array<std::array<char, 256>, max_entries> aliases;
+        std::array<std::array<u8, 16>, max_entries> addresses;
     };
     static_assert(sizeof(HostByNameData) == 0x1A88, "Invalid HostByNameData size");
 
@@ -102,9 +122,9 @@ private:
     }
 
     // System timer adjust
-    u32 timer_adjust_handle;
+    std::chrono::time_point<std::chrono::steady_clock> adjust_value_last;
     void PreTimerAdjust();
-    void PostTimerAdjust();
+    void PostTimerAdjust(Kernel::HLERequestContext& ctx, const std::string& caller_method);
 
     /// Close all open sockets
     void CleanupSockets();
@@ -124,7 +144,6 @@ private:
     void serialize(Archive& ar, const unsigned int) {
         ar& boost::serialization::base_object<Kernel::SessionRequestHandler>(*this);
         ar& open_sockets;
-        ar& timer_adjust_handle;
     }
     friend class boost::serialization::access;
 };

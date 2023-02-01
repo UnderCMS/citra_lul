@@ -96,8 +96,7 @@ void Module::Interface::GetWifiStatus(Kernel::HLERequestContext& ctx) {
 
     std::shared_ptr<SOC::SOC_U> socu_module = SOC::GetService(Core::System::GetInstance());
     if (socu_module) {
-        SOC::SOC_U::InterfaceInfo interface_info;
-        can_reach_internet = socu_module->GetDefaultInterfaceInfo(&interface_info);
+        can_reach_internet = socu_module->GetDefaultInterfaceInfo().has_value();
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
