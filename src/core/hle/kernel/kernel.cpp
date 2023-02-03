@@ -2,6 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <boost/asio/thread_pool.hpp>
 #include <boost/serialization/shared_ptr.hpp>
 #include <boost/serialization/unordered_map.hpp>
 #include <boost/serialization/vector.hpp>
@@ -9,6 +10,7 @@
 #include "common/serialization/atomic.h"
 #include "core/hle/kernel/client_port.h"
 #include "core/hle/kernel/config_mem.h"
+#include "core/hle/kernel/event.h"
 #include "core/hle/kernel/handle_table.h"
 #include "core/hle/kernel/ipc_debugger/recorder.h"
 #include "core/hle/kernel/kernel.h"
@@ -37,6 +39,7 @@ KernelSystem::KernelSystem(Memory::MemorySystem& memory, Core::Timing& timing,
     }
     timer_manager = std::make_unique<TimerManager>(timing);
     ipc_recorder = std::make_unique<IPCDebugger::Recorder>();
+    hle_thread_pool = std::make_unique<boost::asio::thread_pool>();
     stored_processes.assign(num_cores, nullptr);
 
     next_thread_id = 1;
@@ -154,6 +157,21 @@ u32 KernelSystem::NewThreadId() {
 
 void KernelSystem::ResetThreadIDs() {
     next_thread_id = 0;
+}
+
+void KernelSystem::PushHLEParallelEvent(const std::shared_ptr<Event>& event) {
+    std::lock_guard<std::mutex> guard(hle_parallel_events_mutex);
+    hle_parallel_events.push(event);
+}
+
+void KernelSystem::SignalAllHLEParallelEvents() {
+    if (!hle_parallel_events.empty()) {
+        std::lock_guard<std::mutex> guard(hle_parallel_events_mutex);
+        while (!hle_parallel_events.empty()) {
+            hle_parallel_events.front()->Signal();
+            hle_parallel_events.pop();
+        }
+    }
 }
 
 template <class Archive>

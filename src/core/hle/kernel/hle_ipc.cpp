@@ -4,6 +4,9 @@
 
 #include <algorithm>
 #include <vector>
+#include <boost/asio/post.hpp>
+#include <boost/asio/thread_pool.hpp>
+#undef CreateEvent
 #include "common/assert.h"
 #include "common/common_types.h"
 #include "core/core.h"
@@ -91,6 +94,10 @@ std::shared_ptr<Event> HLERequestContext::SleepClientThread(
         thread->WakeAfterDelay(timeout.count());
 
     return event;
+}
+
+void HLERequestContext::AppendToThreadPool(const std::function<void(void)>& func) {
+    boost::asio::post(kernel.GetHLEThreadPool(), func);
 }
 
 HLERequestContext::HLERequestContext() : kernel(Core::Global<KernelSystem>()) {}

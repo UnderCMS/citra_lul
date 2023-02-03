@@ -57,7 +57,22 @@ void File::Read(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x0802, 3, 2);
     u64 offset = rp.Pop<u64>();
     u32 length = rp.Pop<u32>();
-    auto& buffer = rp.PopMappedBuffer();
+
+    struct ParallelData {
+        File* own{nullptr};
+        Kernel::MappedBuffer buffer;
+        std::vector<u8> data;
+        ResultVal<std::size_t> read;
+        u64 offset{0};
+        ParallelData(const Kernel::MappedBuffer& buf) : buffer(buf) {}
+    };
+
+    std::shared_ptr<ParallelData> parallel_data =
+        std::make_shared<ParallelData>(rp.PopMappedBuffer());
+    parallel_data->own = this;
+    parallel_data->offset = offset;
+    parallel_data->data.resize(length);
+
     LOG_TRACE(Service_FS, "Read {}: offset=0x{:x} length=0x{:08X}", GetName(), offset, length);
 
     const FileSessionSlot* file = GetSessionData(ctx.Session());
@@ -76,22 +91,37 @@ void File::Read(Kernel::HLERequestContext& ctx) {
                   offset, length, backend->GetSize());
     }
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
+    ctx.RunInParalelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            std::chrono::time_point<std::chrono::steady_clock> pre_timer =
+                std::chrono::steady_clock::now();
 
-    std::vector<u8> data(length);
-    ResultVal<std::size_t> read = backend->Read(offset, data.size(), data.data());
-    if (read.Failed()) {
-        rb.Push(read.Code());
-        rb.Push<u32>(0);
-    } else {
-        buffer.Write(data.data(), 0, *read);
-        rb.Push(RESULT_SUCCESS);
-        rb.Push<u32>(static_cast<u32>(*read));
-    }
-    rb.PushMappedBuffer(buffer);
+            parallel_data->read = parallel_data->own->backend->Read(
+                parallel_data->offset, parallel_data->data.size(), parallel_data->data.data());
+            std::chrono::time_point<std::chrono::steady_clock> post_timer =
+                std::chrono::steady_clock::now();
 
-    std::chrono::nanoseconds read_timeout_ns{backend->GetReadDelayNs(length)};
-    ctx.SleepClientThread("file::read", read_timeout_ns, nullptr);
+            if (!parallel_data->read.Failed()) {
+                parallel_data->buffer.Write(parallel_data->data.data(), 0, *parallel_data->read);
+            }
+
+            return (std::chrono::nanoseconds(
+                        parallel_data->own->backend->GetReadDelayNs(parallel_data->data.size())) -
+                    (post_timer - pre_timer))
+                .count();
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x0802, 2, 2);
+            if (parallel_data->read.Failed()) {
+                rb.Push(parallel_data->read.Code());
+                rb.Push<u32>(0);
+            } else {
+                rb.Push(RESULT_SUCCESS);
+                rb.Push<u32>(static_cast<u32>(*parallel_data->read));
+            }
+            rb.PushMappedBuffer(parallel_data->buffer);
+        },
+        length > 512);
 }
 
 void File::Write(Kernel::HLERequestContext& ctx) {
@@ -99,37 +129,66 @@ void File::Write(Kernel::HLERequestContext& ctx) {
     u64 offset = rp.Pop<u64>();
     u32 length = rp.Pop<u32>();
     u32 flush = rp.Pop<u32>();
-    auto& buffer = rp.PopMappedBuffer();
+
+    struct ParallelData {
+        File* own;
+        FileSessionSlot* file;
+        Kernel::MappedBuffer buffer;
+        u32 length;
+        u64 offset;
+        u32 flush;
+        ResultVal<std::size_t> written;
+        ParallelData(const Kernel::MappedBuffer& buf) : buffer(buf) {}
+    };
+
+    std::shared_ptr<ParallelData> parallel_data =
+        std::make_shared<ParallelData>(rp.PopMappedBuffer());
+    parallel_data->own = this;
+    parallel_data->length = length;
+    parallel_data->offset = offset;
+    parallel_data->flush = flush;
+
     LOG_TRACE(Service_FS, "Write {}: offset=0x{:x} length={}, flush=0x{:x}", GetName(), offset,
               length, flush);
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
-
     FileSessionSlot* file = GetSessionData(ctx.Session());
+    parallel_data->file = file;
 
     // Subfiles can not be written to
     if (file->subfile) {
+        IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
         rb.Push(FileSys::ERROR_UNSUPPORTED_OPEN_FLAGS);
         rb.Push<u32>(0);
-        rb.PushMappedBuffer(buffer);
+        rb.PushMappedBuffer(parallel_data->buffer);
         return;
     }
 
-    std::vector<u8> data(length);
-    buffer.Read(data.data(), 0, data.size());
-    ResultVal<std::size_t> written = backend->Write(offset, data.size(), flush != 0, data.data());
+    std::shared_ptr<ResultVal<std::size_t>> written_ptr =
+        std::make_shared<ResultVal<std::size_t>>();
 
-    // Update file size
-    file->size = backend->GetSize();
+    ctx.RunInParalelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            std::vector<u8> data(parallel_data->length);
+            parallel_data->buffer.Read(data.data(), 0, data.size());
+            parallel_data->written = parallel_data->own->backend->Write(
+                parallel_data->offset, data.size(), parallel_data->flush != 0, data.data());
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x0803, 2, 2);
+            // Update file size
+            parallel_data->file->size = parallel_data->own->backend->GetSize();
 
-    if (written.Failed()) {
-        rb.Push(written.Code());
-        rb.Push<u32>(0);
-    } else {
-        rb.Push(RESULT_SUCCESS);
-        rb.Push<u32>(static_cast<u32>(*written));
-    }
-    rb.PushMappedBuffer(buffer);
+            if (parallel_data->written.Failed()) {
+                rb.Push(parallel_data->written.Code());
+                rb.Push<u32>(0);
+            } else {
+                rb.Push(RESULT_SUCCESS);
+                rb.Push<u32>(static_cast<u32>(*parallel_data->written));
+            }
+            rb.PushMappedBuffer(parallel_data->buffer);
+        },
+        length > 512);
 }
 
 void File::GetSize(Kernel::HLERequestContext& ctx) {

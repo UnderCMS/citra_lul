@@ -121,11 +121,6 @@ private:
         return next_socket_id++;
     }
 
-    // System timer adjust
-    std::chrono::time_point<std::chrono::steady_clock> adjust_value_last;
-    void PreTimerAdjust();
-    void PostTimerAdjust(Kernel::HLERequestContext& ctx, const std::string& caller_method);
-
     /// Close all open sockets
     void CleanupSockets();
 

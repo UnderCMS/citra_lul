@@ -366,19 +366,6 @@ struct CTRAddrInfo {
 
 static_assert(sizeof(CTRAddrInfo) == 0x130, "Size of CTRAddrInfo is not correct");
 
-void SOC_U::PreTimerAdjust() {
-    adjust_value_last = std::chrono::steady_clock::now();
-}
-
-void SOC_U::PostTimerAdjust(Kernel::HLERequestContext& ctx, const std::string& caller_method) {
-    std::chrono::time_point<std::chrono::steady_clock> new_timer = std::chrono::steady_clock::now();
-    ASSERT(new_timer >= adjust_value_last);
-    ctx.SleepClientThread(
-        fmt::format("soc_u::{}", caller_method),
-        std::chrono::duration_cast<std::chrono::nanoseconds>(new_timer - adjust_value_last),
-        nullptr);
-}
-
 void SOC_U::CleanupSockets() {
     for (const auto sock : open_sockets)
         closesocket(sock.second.socket_fd);
@@ -723,7 +710,7 @@ void SOC_U::RecvFromOther(Kernel::HLERequestContext& ctx) {
 
     s32 ret = -1;
     if (fd_info->second.blocking) {
-        PreTimerAdjust();
+        // PreTimerAdjust();
     }
 
     if (addr_len > 0) {
@@ -739,7 +726,7 @@ void SOC_U::RecvFromOther(Kernel::HLERequestContext& ctx) {
         addr_buff.resize(0);
     }
     if (fd_info->second.blocking) {
-        PostTimerAdjust(ctx, "RecvFromOther");
+        // PostTimerAdjust(ctx, "RecvFromOther");
     }
     if (ret == SOCKET_ERROR_VALUE) {
         ret = TranslateError(GET_ERRNO);
@@ -779,7 +766,7 @@ void SOC_U::RecvFrom(Kernel::HLERequestContext& ctx) {
 
     s32 ret = -1;
     if (fd_info->second.blocking) {
-        PreTimerAdjust();
+        // PreTimerAdjust();
     }
     if (addr_len > 0) {
         // Only get src adr if input adr available
@@ -795,7 +782,7 @@ void SOC_U::RecvFrom(Kernel::HLERequestContext& ctx) {
         addr_buff.resize(0);
     }
     if (fd_info->second.blocking) {
-        PostTimerAdjust(ctx, "RecvFrom");
+        // PostTimerAdjust(ctx, "RecvFrom");
     }
 
     s32 total_received = ret;
@@ -820,46 +807,66 @@ void SOC_U::Poll(Kernel::HLERequestContext& ctx) {
     u32 nfds = rp.Pop<u32>();
     s32 timeout = rp.Pop<s32>();
     rp.PopPID();
-    auto input_fds = rp.PopStaticBuffer();
 
-    std::vector<CTRPollFD> ctr_fds(nfds);
-    std::memcpy(ctr_fds.data(), input_fds.data(), nfds * sizeof(CTRPollFD));
+    struct ParallelData {
+        const std::vector<u8>& input_fds;
+        std::vector<u8> output_fds;
+        SOC::SOC_U* own;
+        u32 ret;
+        u32 nfds;
+        s32 timeout;
+        ParallelData(const std::vector<u8>& in_fds) : input_fds(in_fds) {}
+    };
 
-    // The 3ds_pollfd and the pollfd structures may be different (Windows/Linux have different
-    // sizes)
-    // so we have to copy the data in order
-    std::vector<pollfd> platform_pollfd(nfds);
-    for (u32 i = 0; i < nfds; i++) {
-        platform_pollfd[i] = CTRPollFD::ToPlatform(*this, ctr_fds[i]);
-    }
+    std::shared_ptr<ParallelData> parallel_data =
+        std::make_shared<ParallelData>(rp.PopStaticBuffer());
+    parallel_data->own = this;
+    parallel_data->nfds = nfds;
+    parallel_data->timeout = timeout;
 
-    if (timeout) {
-        PreTimerAdjust();
-    }
-    s32 ret = ::poll(platform_pollfd.data(), nfds, timeout);
-    if (timeout) {
-        PostTimerAdjust(ctx, "Poll");
-    }
+    ctx.RunInParalelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            std::vector<CTRPollFD> ctr_fds(parallel_data->nfds);
+            std::memcpy(ctr_fds.data(), parallel_data->input_fds.data(),
+                        parallel_data->nfds * sizeof(CTRPollFD));
 
-    // Now update the output 3ds_pollfd structure
-    for (u32 i = 0; i < nfds; i++) {
-        ctr_fds[i] = CTRPollFD::FromPlatform(*this, platform_pollfd[i]);
-    }
+            // The 3ds_pollfd and the pollfd structures may be different (Windows/Linux have
+            // different
+            // sizes)
+            // so we have to copy the data in order
+            auto platform_pollfd = std::vector<pollfd>(parallel_data->nfds);
+            for (u32 i = 0; i < parallel_data->nfds; i++) {
+                platform_pollfd[i] = CTRPollFD::ToPlatform(*parallel_data->own, ctr_fds[i]);
+            }
 
-    std::vector<u8> output_fds(nfds * sizeof(CTRPollFD));
-    std::memcpy(output_fds.data(), ctr_fds.data(), nfds * sizeof(CTRPollFD));
+            parallel_data->ret =
+                ::poll(platform_pollfd.data(), parallel_data->nfds, parallel_data->timeout);
 
-    if (ret == SOCKET_ERROR_VALUE) {
-        int err = GET_ERRNO;
-        LOG_ERROR(Service_SOC, "Socket error: {}", err);
+            parallel_data->output_fds.resize(parallel_data->nfds * sizeof(CTRPollFD));
+            CTRPollFD* output_fds_ptr =
+                reinterpret_cast<CTRPollFD*>(parallel_data->output_fds.data());
+            // Now update the output 3ds_pollfd structure
+            for (u32 i = 0; i < parallel_data->nfds; i++) {
+                output_fds_ptr[i] =
+                    CTRPollFD::FromPlatform(*parallel_data->own, platform_pollfd[i]);
+            }
 
-        ret = TranslateError(GET_ERRNO);
-    }
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            if (parallel_data->ret == SOCKET_ERROR_VALUE) {
+                int err = GET_ERRNO;
+                LOG_ERROR(Service_SOC, "Socket error: {}", err);
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
-    rb.Push(RESULT_SUCCESS);
-    rb.Push(ret);
-    rb.PushStaticBuffer(std::move(output_fds), 0);
+                parallel_data->ret = TranslateError(GET_ERRNO);
+            }
+
+            IPC::RequestBuilder rb(ctx, 0x14, 2, 2);
+            rb.Push(RESULT_SUCCESS);
+            rb.Push(parallel_data->ret);
+            rb.PushStaticBuffer(std::move(parallel_data->output_fds), 0);
+        },
+        timeout > 0);
 }
 
 void SOC_U::GetSockName(Kernel::HLERequestContext& ctx) {
@@ -1006,11 +1013,11 @@ void SOC_U::Connect(Kernel::HLERequestContext& ctx) {
 
     sockaddr input_addr = CTRSockAddr::ToPlatform(ctr_input_addr);
     if (fd_info->second.blocking) {
-        PreTimerAdjust();
+        // PreTimerAdjust();
     }
     s32 ret = ::connect(fd_info->second.socket_fd, &input_addr, sizeof(input_addr));
     if (fd_info->second.blocking) {
-        PostTimerAdjust(ctx, "Connect");
+        // PostTimerAdjust(ctx, "Connect");
     }
     if (ret != 0)
         ret = TranslateError(GET_ERRNO);

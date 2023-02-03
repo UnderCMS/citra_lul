@@ -61,23 +61,34 @@ void FS_USER::OpenFile(Kernel::HLERequestContext& ctx) {
     const auto attributes = rp.Pop<u32>(); // TODO(Link Mauve): do something with those attributes.
     std::vector<u8> filename = rp.PopStaticBuffer();
     ASSERT(filename.size() == filename_size);
-    const FileSys::Path file_path(filename_type, std::move(filename));
+    const std::shared_ptr<FileSys::Path> file_path =
+        std::make_shared<FileSys::Path>(filename_type, std::move(filename));
 
-    LOG_DEBUG(Service_FS, "path={}, mode={} attrs={}", file_path.DebugStr(), mode.hex, attributes);
+    LOG_DEBUG(Service_FS, "path={}, mode={} attrs={}", file_path->DebugStr(), mode.hex, attributes);
 
-    const auto [file_res, open_timeout_ns] =
-        archives.OpenFileFromArchive(archive_handle, file_path, mode);
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-    rb.Push(file_res.Code());
-    if (file_res.Succeeded()) {
-        std::shared_ptr<File> file = *file_res;
-        rb.PushMoveObjects(file->Connect());
-    } else {
-        rb.PushMoveObjects<Kernel::Object>(nullptr);
-        LOG_ERROR(Service_FS, "failed to get a handle for file {}", file_path.DebugStr());
-    }
+    std::shared_ptr<ResultVal<std::shared_ptr<File>>> open_file_res =
+        std::make_shared<ResultVal<std::shared_ptr<File>>>();
 
-    ctx.SleepClientThread("fs_user::open", open_timeout_ns, nullptr);
+    ctx.RunInParalelPool(
+        [this, archive_handle, file_path, mode,
+         open_file_res](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            auto result = this->archives.OpenFileFromArchive(archive_handle, *file_path, mode);
+            *open_file_res = result.first;
+            if (!open_file_res->Succeeded()) {
+                LOG_ERROR(Service_FS, "failed to get a handle for file {}", file_path->DebugStr());
+            }
+            return result.second.count();
+        },
+        [open_file_res](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x0802, 1, 2);
+            rb.Push(open_file_res->Code());
+            if (open_file_res->Succeeded()) {
+                std::shared_ptr<File> file = **open_file_res;
+                rb.PushMoveObjects(file->Connect());
+            } else {
+                rb.PushMoveObjects<Kernel::Object>(nullptr);
+            }
+        });
 }
 
 void FS_USER::OpenFileDirectly(Kernel::HLERequestContext& ctx) {

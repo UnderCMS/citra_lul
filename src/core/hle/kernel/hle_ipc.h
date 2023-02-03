@@ -242,6 +242,53 @@ public:
                                              std::chrono::nanoseconds timeout,
                                              std::shared_ptr<WakeupCallback> callback);
 
+private:
+    template <typename ResultFunctor>
+    class ParalelWakeUp : public WakeupCallback {
+    public:
+        explicit ParalelWakeUp(ResultFunctor res_functor) : functor(res_functor) {}
+
+        void WakeUp(std::shared_ptr<Kernel::Thread> thread, Kernel::HLERequestContext& ctx,
+                    Kernel::ThreadWakeupReason reason) {
+            functor(thread, ctx);
+        }
+
+    private:
+        ResultFunctor functor;
+    };
+
+    void AppendToThreadPool(const std::function<void(void)>& func);
+
+public:
+    template <typename ParallelFunctor, typename ResultFunctor>
+    void RunInParalelPool(ParallelFunctor paralel_section, ResultFunctor result_function,
+                          bool really_parallel = true) {
+        really_parallel = really_parallel && kernel.HasParallelHLE();
+
+        auto parallel_wakeup = std::make_shared<ParalelWakeUp<ResultFunctor>>(result_function);
+
+        if (really_parallel) {
+            std::shared_ptr<Event> wakeup_event =
+                this->SleepClientThread("RunInPool", std::chrono::nanoseconds(-1), parallel_wakeup);
+
+            AppendToThreadPool([this, paralel_section, wakeup_event] {
+                s64 sleepfor = paralel_section(this->thread, *this);
+                if (sleepfor > 0) {
+                    std::this_thread::sleep_for(std::chrono::nanoseconds(sleepfor));
+                }
+                Core::System::GetInstance().Kernel().PushHLEParallelEvent(wakeup_event);
+            });
+        } else {
+            s64 sleepfor = paralel_section(thread, *this);
+            if (sleepfor > 0) {
+                std::shared_ptr<Event> wakeup_event = this->SleepClientThread(
+                    "RunInPool", std::chrono::nanoseconds(sleepfor), parallel_wakeup);
+            } else {
+                result_function(this->thread, *this);
+            }
+        }
+    }
+
     /**
      * Resolves a object id from the request command buffer into a pointer to an object. See the
      * "HLE handle protocol" section in the class documentation for more details.

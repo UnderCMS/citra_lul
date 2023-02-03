@@ -223,6 +223,8 @@ System::ResultStatus System::RunLoop(bool tight_loop) {
         }
     }
 
+    kernel->SignalAllHLEParallelEvents();
+
     if (GDBStub::IsServerEnabled()) {
         GDBStub::SetCpuStepFlag(false);
     }
