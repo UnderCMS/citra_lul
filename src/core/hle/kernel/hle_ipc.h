@@ -18,6 +18,7 @@
 #include "common/common_types.h"
 #include "common/serialization/boost_small_vector.hpp"
 #include "common/swap.h"
+#include "core/core.h"
 #include "core/hle/ipc.h"
 #include "core/hle/kernel/object.h"
 #include "core/hle/kernel/server_session.h"
