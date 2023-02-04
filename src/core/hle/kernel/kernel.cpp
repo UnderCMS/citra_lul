@@ -39,7 +39,7 @@ KernelSystem::KernelSystem(Memory::MemorySystem& memory, Core::Timing& timing,
     }
     timer_manager = std::make_unique<TimerManager>(timing);
     ipc_recorder = std::make_unique<IPCDebugger::Recorder>();
-    hle_thread_pool = std::make_unique<boost::asio::thread_pool>();
+    hle_thread_pool = std::make_unique<boost::asio::thread_pool>(16);
     stored_processes.assign(num_cores, nullptr);
 
     next_thread_id = 1;
