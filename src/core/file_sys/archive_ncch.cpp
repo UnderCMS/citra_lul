@@ -252,11 +252,21 @@ ResultVal<std::size_t> NCCHFile::Read(const u64 offset, const std::size_t length
     return MakeResult<std::size_t>(copy_size);
 }
 
+ResultVal<std::size_t> NCCHFile::PRead(const u64 offset, const std::size_t length,
+                                       u8* buffer) const {
+    return Read(offset, length, buffer);
+}
+
 ResultVal<std::size_t> NCCHFile::Write(const u64 offset, const std::size_t length, const bool flush,
                                        const u8* buffer) {
     LOG_ERROR(Service_FS, "Attempted to write to NCCH file");
     // TODO(shinyquagsire23): Find error code
     return MakeResult<std::size_t>(0);
+}
+
+ResultVal<std::size_t> NCCHFile::PWrite(const u64 offset, const std::size_t length,
+                                        const bool flush, const u8* buffer) {
+    return Write(offset, length, flush, buffer);
 }
 
 u64 NCCHFile::GetSize() const {

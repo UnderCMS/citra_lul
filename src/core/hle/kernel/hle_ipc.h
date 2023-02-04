@@ -18,7 +18,6 @@
 #include "common/common_types.h"
 #include "common/serialization/boost_small_vector.hpp"
 #include "common/swap.h"
-#include "core/core.h"
 #include "core/hle/ipc.h"
 #include "core/hle/kernel/object.h"
 #include "core/hle/kernel/server_session.h"
@@ -269,21 +268,17 @@ public:
         auto parallel_wakeup = std::make_shared<ParalelWakeUp<ResultFunctor>>(result_function);
 
         if (really_parallel) {
-            std::shared_ptr<Event> wakeup_event =
-                this->SleepClientThread("RunInPool", std::chrono::nanoseconds(-1), parallel_wakeup);
+            this->SleepClientThread("RunInPool", std::chrono::nanoseconds(-1), parallel_wakeup);
 
-            AppendToThreadPool([this, paralel_section, wakeup_event] {
+            AppendToThreadPool([this, paralel_section] {
                 s64 sleepfor = paralel_section(this->thread, *this);
-                if (sleepfor > 0) {
-                    std::this_thread::sleep_for(std::chrono::nanoseconds(sleepfor));
-                }
-                Core::System::GetInstance().Kernel().PushHLEParallelEvent(wakeup_event);
+                thread->WakeAfterDelayTS(sleepfor);
             });
         } else {
             s64 sleepfor = paralel_section(thread, *this);
             if (sleepfor > 0) {
-                std::shared_ptr<Event> wakeup_event = this->SleepClientThread(
-                    "RunInPool", std::chrono::nanoseconds(sleepfor), parallel_wakeup);
+                this->SleepClientThread("RunInPool", std::chrono::nanoseconds(sleepfor),
+                                        parallel_wakeup);
             } else {
                 result_function(this->thread, *this);
             }

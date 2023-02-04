@@ -92,6 +92,11 @@ ResultVal<std::size_t> CIAFile::Read(u64 offset, std::size_t length, u8* buffer)
     return MakeResult<std::size_t>(length);
 }
 
+ResultVal<std::size_t> CIAFile::PRead(u64 offset, std::size_t length, u8* buffer) const {
+    UNIMPLEMENTED();
+    return MakeResult<std::size_t>(length);
+}
+
 ResultCode CIAFile::WriteTicket() {
     container.LoadTicket(data, container.GetTicketOffset());
 
@@ -265,6 +270,13 @@ ResultVal<std::size_t> CIAFile::Write(u64 offset, std::size_t length, bool flush
         return result;
 
     return MakeResult<std::size_t>(length);
+}
+
+ResultVal<std::size_t> CIAFile::PWrite(u64 offset, std::size_t length, bool flush,
+                                       const u8* buffer) {
+    // Thread safety not needed, as normally you don't write a cia file from
+    // multiple threads
+    return Write(offset, length, flush, buffer);
 }
 
 u64 CIAFile::GetSize() const {
@@ -1151,9 +1163,18 @@ public:
         return file->backend->Read(offset + file_offset, length, buffer);
     }
 
+    ResultVal<std::size_t> PRead(u64 offset, std::size_t length, u8* buffer) const override {
+        return file->backend->PRead(offset + file_offset, length, buffer);
+    }
+
     ResultVal<std::size_t> Write(u64 offset, std::size_t length, bool flush,
                                  const u8* buffer) override {
         return file->backend->Write(offset + file_offset, length, flush, buffer);
+    }
+
+    ResultVal<std::size_t> PWrite(u64 offset, std::size_t length, bool flush,
+                                  const u8* buffer) override {
+        return file->backend->PWrite(offset + file_offset, length, flush, buffer);
     }
 
     u64 GetSize() const override {

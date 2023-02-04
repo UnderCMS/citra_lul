@@ -32,6 +32,15 @@ public:
     virtual ResultVal<std::size_t> Read(u64 offset, std::size_t length, u8* buffer) const = 0;
 
     /**
+     * Read data from the file thread safe
+     * @param offset Offset in bytes to start reading data from
+     * @param length Length in bytes of data to read from file
+     * @param buffer Buffer to read data into
+     * @return Number of bytes read, or error code
+     */
+    virtual ResultVal<std::size_t> PRead(u64 offset, std::size_t length, u8* buffer) const = 0;
+
+    /**
      * Write data to the file
      * @param offset Offset in bytes to start writing data to
      * @param length Length in bytes of data to write to file
@@ -41,6 +50,17 @@ public:
      */
     virtual ResultVal<std::size_t> Write(u64 offset, std::size_t length, bool flush,
                                          const u8* buffer) = 0;
+
+    /**
+     * Write data to the file thread safe
+     * @param offset Offset in bytes to start writing data to
+     * @param length Length in bytes of data to write to file
+     * @param flush The flush parameters (0 == do not flush)
+     * @param buffer Buffer to read data from
+     * @return Number of bytes written, or error code
+     */
+    virtual ResultVal<std::size_t> PWrite(u64 offset, std::size_t length, bool flush,
+                                          const u8* buffer) = 0;
 
     /**
      * Get the amount of time a 3ds needs to read those data

@@ -159,21 +159,6 @@ void KernelSystem::ResetThreadIDs() {
     next_thread_id = 0;
 }
 
-void KernelSystem::PushHLEParallelEvent(const std::shared_ptr<Event>& event) {
-    std::lock_guard<std::mutex> guard(hle_parallel_events_mutex);
-    hle_parallel_events.push(event);
-}
-
-void KernelSystem::SignalAllHLEParallelEvents() {
-    if (!hle_parallel_events.empty()) {
-        std::lock_guard<std::mutex> guard(hle_parallel_events_mutex);
-        while (!hle_parallel_events.empty()) {
-            hle_parallel_events.front()->Signal();
-            hle_parallel_events.pop();
-        }
-    }
-}
-
 template <class Archive>
 void KernelSystem::serialize(Archive& ar, const unsigned int file_version) {
     ar& memory_regions;

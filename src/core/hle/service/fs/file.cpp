@@ -96,7 +96,7 @@ void File::Read(Kernel::HLERequestContext& ctx) {
             std::chrono::time_point<std::chrono::steady_clock> pre_timer =
                 std::chrono::steady_clock::now();
 
-            parallel_data->read = parallel_data->own->backend->Read(
+            parallel_data->read = parallel_data->own->backend->PRead(
                 parallel_data->offset, parallel_data->data.size(), parallel_data->data.data());
             std::chrono::time_point<std::chrono::steady_clock> post_timer =
                 std::chrono::steady_clock::now();
@@ -105,10 +105,11 @@ void File::Read(Kernel::HLERequestContext& ctx) {
                 parallel_data->buffer.Write(parallel_data->data.data(), 0, *parallel_data->read);
             }
 
-            return (std::chrono::nanoseconds(
-                        parallel_data->own->backend->GetReadDelayNs(parallel_data->data.size())) -
-                    (post_timer - pre_timer))
-                .count();
+            return std::max(
+                0LL, (std::chrono::nanoseconds(
+                          parallel_data->own->backend->GetReadDelayNs(parallel_data->data.size())) -
+                      (post_timer - pre_timer))
+                         .count());
         },
         [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
             IPC::RequestBuilder rb(ctx, 0x0802, 2, 2);
@@ -170,7 +171,7 @@ void File::Write(Kernel::HLERequestContext& ctx) {
         [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
             std::vector<u8> data(parallel_data->length);
             parallel_data->buffer.Read(data.data(), 0, data.size());
-            parallel_data->written = parallel_data->own->backend->Write(
+            parallel_data->written = parallel_data->own->backend->PWrite(
                 parallel_data->offset, data.size(), parallel_data->flush != 0, data.data());
             return 0;
         },

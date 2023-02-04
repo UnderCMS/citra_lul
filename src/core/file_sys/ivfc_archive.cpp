@@ -107,11 +107,22 @@ ResultVal<std::size_t> IVFCFile::Read(const u64 offset, const std::size_t length
     return MakeResult<std::size_t>(romfs_file->ReadFile(offset, length, buffer));
 }
 
+ResultVal<std::size_t> IVFCFile::PRead(const u64 offset, const std::size_t length,
+                                       u8* buffer) const {
+    LOG_TRACE(Service_FS, "called offset={}, length={}", offset, length);
+    return MakeResult<std::size_t>(romfs_file->PReadFile(offset, length, buffer));
+}
+
 ResultVal<std::size_t> IVFCFile::Write(const u64 offset, const std::size_t length, const bool flush,
                                        const u8* buffer) {
     LOG_ERROR(Service_FS, "Attempted to write to IVFC file");
     // TODO(Subv): Find error code
     return MakeResult<std::size_t>(0);
+}
+
+ResultVal<std::size_t> IVFCFile::PWrite(const u64 offset, const std::size_t length,
+                                        const bool flush, const u8* buffer) {
+    return Write(offset, length, flush, buffer);
 }
 
 u64 IVFCFile::GetSize() const {
@@ -140,11 +151,21 @@ ResultVal<std::size_t> IVFCFileInMemory::Read(const u64 offset, const std::size_
     return MakeResult<std::size_t>(read_length);
 }
 
+ResultVal<std::size_t> IVFCFileInMemory::PRead(const u64 offset, const std::size_t length,
+                                               u8* buffer) const {
+    return Read(offset, length, buffer);
+}
+
 ResultVal<std::size_t> IVFCFileInMemory::Write(const u64 offset, const std::size_t length,
                                                const bool flush, const u8* buffer) {
     LOG_ERROR(Service_FS, "Attempted to write to IVFC file");
     // TODO(Subv): Find error code
     return MakeResult<std::size_t>(0);
+}
+
+ResultVal<std::size_t> IVFCFileInMemory::PWrite(const u64 offset, const std::size_t length,
+                                                const bool flush, const u8* buffer) {
+    return Write(offset, length, flush, buffer);
 }
 
 u64 IVFCFileInMemory::GetSize() const {

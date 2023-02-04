@@ -547,6 +547,65 @@ std::size_t LayeredFS::ReadFile(std::size_t offset, std::size_t length, u8* buff
     return read_size;
 }
 
+std::size_t LayeredFS::PReadFile(std::size_t offset, std::size_t length, u8* buffer) {
+    ASSERT_MSG(offset + length <= GetSize(), "Out of bound");
+
+    std::size_t read_size = 0;
+    if (offset < metadata.size()) {
+        // First read the metadata
+        const auto to_read = std::min(metadata.size() - offset, length);
+        std::memcpy(buffer, metadata.data() + offset, to_read);
+        read_size += to_read;
+        offset = 0;
+    } else {
+        offset -= metadata.size();
+    }
+
+    // Read files
+    auto current = (--data_offset_map.upper_bound(offset));
+    while (read_size < length) {
+        const auto relative_offset = offset - current->first;
+        std::size_t to_read{};
+        if (current->second->relocation.size > relative_offset) {
+            to_read = std::min<std::size_t>(current->second->relocation.size - relative_offset,
+                                            length - read_size);
+        }
+        const auto alignment =
+            std::min<std::size_t>(Common::AlignUp(current->second->relocation.size, 16) -
+                                      relative_offset,
+                                  length - read_size) -
+            to_read;
+
+        // Read the file in different ways depending on relocation type
+        auto& relocation = current->second->relocation;
+        if (relocation.type == 0) { // none
+            romfs->PReadFile(relocation.original_offset + relative_offset, to_read,
+                             buffer + read_size);
+        } else if (relocation.type == 1) { // replace
+            FileUtil::IOFile replace_file(relocation.replace_file_path, "rb");
+            if (replace_file) {
+                replace_file.PReadBytes(buffer + read_size, to_read, relative_offset);
+            } else {
+                LOG_ERROR(Service_FS, "Could not open replacement file for {}",
+                          current->second->path);
+            }
+        } else if (relocation.type == 2) { // patch
+            std::memcpy(buffer + read_size, relocation.patched_file.data() + relative_offset,
+                        to_read);
+        } else {
+            UNREACHABLE();
+        }
+
+        std::memset(buffer + read_size + to_read, 0, alignment);
+
+        read_size += to_read + alignment;
+        offset += to_read + alignment;
+        current++;
+    }
+
+    return read_size;
+}
+
 bool LayeredFS::ExtractDirectory(Directory& current, const std::string& target_path) {
     if (!FileUtil::CreateFullPath(target_path + current.path)) {
         LOG_ERROR(Service_FS, "Could not create path {}", target_path + current.path);

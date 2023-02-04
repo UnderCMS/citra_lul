@@ -286,10 +286,6 @@ public:
         return *hle_thread_pool;
     }
 
-    void PushHLEParallelEvent(const std::shared_ptr<Event>& event);
-
-    void SignalAllHLEParallelEvents();
-
     /// Map of named ports managed by the kernel, which can be retrieved using the ConnectToPort
     std::unordered_map<std::string, std::shared_ptr<ClientPort>> named_ports;
 
@@ -336,8 +332,6 @@ private:
     u32 next_thread_id;
 
     std::unique_ptr<boost::asio::thread_pool> hle_thread_pool;
-    std::queue<std::shared_ptr<Event>> hle_parallel_events;
-    std::mutex hle_parallel_events_mutex;
 
     friend class boost::serialization::access;
     template <class Archive>

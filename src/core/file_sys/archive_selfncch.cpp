@@ -55,10 +55,19 @@ public:
         return MakeResult<std::size_t>(data->size());
     }
 
+    ResultVal<std::size_t> PRead(u64 offset, std::size_t length, u8* buffer) const override {
+        return Read(offset, length, buffer);
+    }
+
     ResultVal<std::size_t> Write(u64 offset, std::size_t length, bool flush,
                                  const u8* buffer) override {
         LOG_ERROR(Service_FS, "The file is read-only!");
         return ERROR_UNSUPPORTED_OPEN_FLAGS;
+    }
+
+    ResultVal<std::size_t> PWrite(u64 offset, std::size_t length, bool flush,
+                                  const u8* buffer) override {
+        return Write(offset, length, flush, buffer);
     }
 
     u64 GetSize() const override {

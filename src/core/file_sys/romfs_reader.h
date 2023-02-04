@@ -18,6 +18,7 @@ public:
 
     virtual std::size_t GetSize() const = 0;
     virtual std::size_t ReadFile(std::size_t offset, std::size_t length, u8* buffer) = 0;
+    virtual std::size_t PReadFile(std::size_t offset, std::size_t length, u8* buffer) = 0;
 
 private:
     template <class Archive>
@@ -47,6 +48,7 @@ public:
     }
 
     std::size_t ReadFile(std::size_t offset, std::size_t length, u8* buffer) override;
+    std::size_t PReadFile(std::size_t offset, std::size_t length, u8* buffer) override;
 
 private:
     bool is_encrypted;

@@ -1052,6 +1052,64 @@ std::size_t IOFile::ReadImpl(void* data, std::size_t length, std::size_t data_si
     return std::fread(data, data_size, length, m_file);
 }
 
+#ifdef _WIN32
+static std::size_t pread(int fd, void* buf, size_t count, uint64_t offset) {
+    long unsigned int read_bytes = 0;
+    OVERLAPPED overlapped = {0};
+    HANDLE file = (HANDLE)_get_osfhandle(fd);
+
+    overlapped.OffsetHigh = (uint32_t)((offset & 0xFFFFFFFF00000000LL) >> 32);
+    overlapped.Offset = (uint32_t)(offset & 0xFFFFFFFFLL);
+    SetLastError(0);
+    bool ret = ReadFile(file, buf, (u32)count, &read_bytes, &overlapped);
+
+    if (!ret && GetLastError() != ERROR_HANDLE_EOF) {
+        errno = GetLastError();
+        return -1;
+    }
+    return read_bytes;
+}
+#else
+#define pread ::pread
+#endif
+
+#ifdef _WIN32
+static std::size_t pwrite(int fd, const void* buf, size_t count, uint64_t offset) {
+    long unsigned int written_bytes = 0;
+    OVERLAPPED overlapped = {0};
+    HANDLE file = (HANDLE)_get_osfhandle(fd);
+
+    overlapped.OffsetHigh = (uint32_t)((offset & 0xFFFFFFFF00000000LL) >> 32);
+    overlapped.Offset = (uint32_t)(offset & 0xFFFFFFFFLL);
+    SetLastError(0);
+    bool ret = WriteFile(file, buf, (u32)count, &written_bytes, &overlapped);
+
+    if (!ret && GetLastError() != ERROR_HANDLE_EOF) {
+        errno = GetLastError();
+        return -1;
+    }
+    return written_bytes;
+}
+#else
+#define pwrite ::pwrite
+#endif
+
+std::size_t IOFile::PReadImpl(void* data, std::size_t length, std::size_t data_size,
+                              std::size_t offset) {
+    if (!IsOpen()) {
+        m_good = false;
+        return std::numeric_limits<std::size_t>::max();
+    }
+
+    if (length == 0) {
+        return 0;
+    }
+
+    DEBUG_ASSERT(data != nullptr);
+
+    return pread(fileno(m_file), data, data_size * length, offset);
+}
+
 std::size_t IOFile::WriteImpl(const void* data, std::size_t length, std::size_t data_size) {
     if (!IsOpen()) {
         m_good = false;
@@ -1065,6 +1123,22 @@ std::size_t IOFile::WriteImpl(const void* data, std::size_t length, std::size_t 
     DEBUG_ASSERT(data != nullptr);
 
     return std::fwrite(data, data_size, length, m_file);
+}
+
+std::size_t IOFile::PWriteImpl(const void* data, std::size_t length, std::size_t data_size,
+                               std::size_t offset) {
+    if (!IsOpen()) {
+        m_good = false;
+        return std::numeric_limits<std::size_t>::max();
+    }
+
+    if (length == 0) {
+        return 0;
+    }
+
+    DEBUG_ASSERT(data != nullptr);
+
+    return pwrite(fileno(m_file), data, data_size * length, offset);
 }
 
 bool IOFile::Resize(u64 size) {

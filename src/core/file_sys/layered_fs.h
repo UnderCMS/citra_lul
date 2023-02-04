@@ -50,6 +50,7 @@ public:
 
     std::size_t GetSize() const override;
     std::size_t ReadFile(std::size_t offset, std::size_t length, u8* buffer) override;
+    std::size_t PReadFile(std::size_t offset, std::size_t length, u8* buffer) override;
 
     bool DumpRomFS(const std::string& target_path);
 

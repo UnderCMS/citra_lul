@@ -22,4 +22,17 @@ std::size_t DirectRomFSReader::ReadFile(std::size_t offset, std::size_t length, 
     return read_length;
 }
 
+std::size_t DirectRomFSReader::PReadFile(std::size_t offset, std::size_t length, u8* buffer) {
+    if (length == 0)
+        return 0; // Crypto++ does not like zero size buffer
+    std::size_t read_length = std::min(length, static_cast<std::size_t>(data_size) - offset);
+    read_length = file.PReadBytes(buffer, read_length, file_offset + offset);
+    if (is_encrypted) {
+        CryptoPP::CTR_Mode<CryptoPP::AES>::Decryption d(key.data(), key.size(), ctr.data());
+        d.Seek(crypto_offset + offset);
+        d.ProcessData(buffer, buffer, read_length);
+    }
+    return read_length;
+}
+
 } // namespace FileSys
