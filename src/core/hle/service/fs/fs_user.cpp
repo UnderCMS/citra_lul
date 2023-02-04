@@ -75,7 +75,7 @@ void FS_USER::OpenFile(Kernel::HLERequestContext& ctx) {
             auto result = this->archives.OpenFileFromArchive(archive_handle, *file_path, mode);
             *open_file_res = result.first;
             if (!open_file_res->Succeeded()) {
-                LOG_ERROR(Service_FS, "failed to get a handle for file {}", file_path->DebugStr());
+                LOG_DEBUG(Service_FS, "failed to get a handle for file {}", file_path->DebugStr());
             }
             return result.second.count();
         },
