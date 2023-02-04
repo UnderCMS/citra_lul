@@ -106,10 +106,11 @@ void File::Read(Kernel::HLERequestContext& ctx) {
             }
 
             return std::max(
-                0LL, (std::chrono::nanoseconds(
-                          parallel_data->own->backend->GetReadDelayNs(parallel_data->data.size())) -
-                      (post_timer - pre_timer))
-                         .count());
+                0LL, static_cast<long long int>(
+                         (std::chrono::nanoseconds(parallel_data->own->backend->GetReadDelayNs(
+                              parallel_data->data.size())) -
+                          (post_timer - pre_timer))
+                             .count()));
         },
         [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
             IPC::RequestBuilder rb(ctx, 0x0802, 2, 2);
