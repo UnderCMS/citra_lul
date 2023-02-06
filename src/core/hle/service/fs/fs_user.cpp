@@ -202,8 +202,8 @@ void FS_USER::DeleteFile(Kernel::HLERequestContext& ctx) {
 
     ctx.RunInParallelPool(
         [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
-            parallel_data->res = parallel_data->own->archives.DeleteFileFromArchive(parallel_data->archive_handle,
-                                                               parallel_data->file_path);
+            parallel_data->res = parallel_data->own->archives.DeleteFileFromArchive(
+                parallel_data->archive_handle, parallel_data->file_path);
             return 0;
         },
         [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
@@ -402,7 +402,6 @@ void FS_USER::CreateDirectory(Kernel::HLERequestContext& ctx) {
     parallel_data->own = this;
     parallel_data->archive_handle = archive_handle;
     parallel_data->dir_path = FileSys::Path(dirname_type, std::move(dirname));
-
 
     LOG_DEBUG(Service_FS, "type={} size={} data={}", dirname_type, dirname_size,
               parallel_data->dir_path.DebugStr());

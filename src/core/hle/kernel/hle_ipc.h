@@ -262,7 +262,7 @@ private:
 public:
     template <typename ParallelFunctor, typename ResultFunctor>
     void RunInParallelPool(ParallelFunctor paralel_section, ResultFunctor result_function,
-                          bool really_parallel = true) {
+                           bool really_parallel = true) {
         really_parallel = really_parallel && kernel.HasParallelHLE();
 
         auto parallel_wakeup = std::make_shared<ParallelWakeUp<ResultFunctor>>(result_function);
