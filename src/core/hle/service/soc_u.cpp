@@ -824,7 +824,7 @@ void SOC_U::Poll(Kernel::HLERequestContext& ctx) {
     parallel_data->nfds = nfds;
     parallel_data->timeout = timeout;
 
-    ctx.RunInParalelPool(
+    ctx.RunInParallelPool(
         [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
             std::vector<CTRPollFD> ctr_fds(parallel_data->nfds);
             std::memcpy(ctr_fds.data(), parallel_data->input_fds.data(),

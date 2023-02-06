@@ -91,7 +91,7 @@ void File::Read(Kernel::HLERequestContext& ctx) {
                   offset, length, backend->GetSize());
     }
 
-    ctx.RunInParalelPool(
+    ctx.RunInParallelPool(
         [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
             parallel_data->read = parallel_data->own->backend->PRead(
                 parallel_data->offset, parallel_data->data.size(), parallel_data->data.data());
@@ -161,7 +161,7 @@ void File::Write(Kernel::HLERequestContext& ctx) {
     std::shared_ptr<ResultVal<std::size_t>> written_ptr =
         std::make_shared<ResultVal<std::size_t>>();
 
-    ctx.RunInParalelPool(
+    ctx.RunInParallelPool(
         [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
             std::vector<u8> data(parallel_data->length);
             parallel_data->buffer.Read(data.data(), 0, data.size());

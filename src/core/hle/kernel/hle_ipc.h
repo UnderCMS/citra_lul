@@ -244,9 +244,9 @@ public:
 
 private:
     template <typename ResultFunctor>
-    class ParalelWakeUp : public WakeupCallback {
+    class ParallelWakeUp : public WakeupCallback {
     public:
-        explicit ParalelWakeUp(ResultFunctor res_functor) : functor(res_functor) {}
+        explicit ParallelWakeUp(ResultFunctor res_functor) : functor(res_functor) {}
 
         void WakeUp(std::shared_ptr<Kernel::Thread> thread, Kernel::HLERequestContext& ctx,
                     Kernel::ThreadWakeupReason reason) {
@@ -261,11 +261,11 @@ private:
 
 public:
     template <typename ParallelFunctor, typename ResultFunctor>
-    void RunInParalelPool(ParallelFunctor paralel_section, ResultFunctor result_function,
+    void RunInParallelPool(ParallelFunctor paralel_section, ResultFunctor result_function,
                           bool really_parallel = true) {
         really_parallel = really_parallel && kernel.HasParallelHLE();
 
-        auto parallel_wakeup = std::make_shared<ParalelWakeUp<ResultFunctor>>(result_function);
+        auto parallel_wakeup = std::make_shared<ParallelWakeUp<ResultFunctor>>(result_function);
 
         if (really_parallel) {
             this->SleepClientThread("RunInPool", std::chrono::nanoseconds(-1), parallel_wakeup);

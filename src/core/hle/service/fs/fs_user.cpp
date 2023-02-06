@@ -61,29 +61,40 @@ void FS_USER::OpenFile(Kernel::HLERequestContext& ctx) {
     const auto attributes = rp.Pop<u32>(); // TODO(Link Mauve): do something with those attributes.
     std::vector<u8> filename = rp.PopStaticBuffer();
     ASSERT(filename.size() == filename_size);
-    const std::shared_ptr<FileSys::Path> file_path =
-        std::make_shared<FileSys::Path>(filename_type, std::move(filename));
 
-    LOG_DEBUG(Service_FS, "path={}, mode={} attrs={}", file_path->DebugStr(), mode.hex, attributes);
+    struct ParallelData {
+        FS_USER* own;
+        ArchiveHandle archive_handle;
+        FileSys::Path file_path;
+        FileSys::Mode mode;
+        ResultVal<std::shared_ptr<File>> open_file_res;
+    };
 
-    std::shared_ptr<ResultVal<std::shared_ptr<File>>> open_file_res =
-        std::make_shared<ResultVal<std::shared_ptr<File>>>();
+    auto parallel_data = std::make_shared<ParallelData>();
+    parallel_data->own = this;
+    parallel_data->archive_handle = archive_handle;
+    parallel_data->file_path = FileSys::Path(filename_type, std::move(filename));
+    parallel_data->mode = mode;
 
-    ctx.RunInParalelPool(
-        [this, archive_handle, file_path, mode,
-         open_file_res](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
-            auto result = this->archives.OpenFileFromArchive(archive_handle, *file_path, mode);
-            *open_file_res = result.first;
-            if (!open_file_res->Succeeded()) {
-                LOG_DEBUG(Service_FS, "failed to get a handle for file {}", file_path->DebugStr());
+    LOG_DEBUG(Service_FS, "path={}, mode={} attrs={}", parallel_data->file_path.DebugStr(),
+              parallel_data->mode.hex, attributes);
+
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            auto result = parallel_data->own->archives.OpenFileFromArchive(
+                parallel_data->archive_handle, parallel_data->file_path, parallel_data->mode);
+            parallel_data->open_file_res = result.first;
+            if (!parallel_data->open_file_res.Succeeded()) {
+                LOG_DEBUG(Service_FS, "failed to get a handle for file {}",
+                          parallel_data->file_path.DebugStr());
             }
             return result.second.count();
         },
-        [open_file_res](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
             IPC::RequestBuilder rb(ctx, 0x0802, 1, 2);
-            rb.Push(open_file_res->Code());
-            if (open_file_res->Succeeded()) {
-                std::shared_ptr<File> file = **open_file_res;
+            rb.Push(parallel_data->open_file_res.Code());
+            if (parallel_data->open_file_res.Succeeded()) {
+                std::shared_ptr<File> file = *parallel_data->open_file_res;
                 rb.PushMoveObjects(file->Connect());
             } else {
                 rb.PushMoveObjects<Kernel::Object>(nullptr);
@@ -112,13 +123,12 @@ void FS_USER::OpenFileDirectly(Kernel::HLERequestContext& ctx) {
     LOG_DEBUG(Service_FS, "archive_id=0x{:08X} archive_path={} file_path={}, mode={} attributes={}",
               archive_id, archive_path.DebugStr(), file_path.DebugStr(), mode.hex, attributes);
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-
     ClientSlot* slot = GetSessionData(ctx.Session());
 
     ResultVal<ArchiveHandle> archive_handle =
         archives.OpenArchive(archive_id, archive_path, slot->program_id);
     if (archive_handle.Failed()) {
+        IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
         LOG_ERROR(Service_FS,
                   "Failed to get a handle for archive archive_id=0x{:08X} archive_path={}",
                   archive_id, archive_path.DebugStr());
@@ -126,21 +136,43 @@ void FS_USER::OpenFileDirectly(Kernel::HLERequestContext& ctx) {
         rb.PushMoveObjects<Kernel::Object>(nullptr);
         return;
     }
-    SCOPE_EXIT({ archives.CloseArchive(*archive_handle); });
 
-    const auto [file_res, open_timeout_ns] =
-        archives.OpenFileFromArchive(*archive_handle, file_path, mode);
-    rb.Push(file_res.Code());
-    if (file_res.Succeeded()) {
-        std::shared_ptr<File> file = *file_res;
-        rb.PushMoveObjects(file->Connect());
-    } else {
-        rb.PushMoveObjects<Kernel::Object>(nullptr);
-        LOG_ERROR(Service_FS, "failed to get a handle for file {} mode={} attributes={}",
-                  file_path.DebugStr(), mode.hex, attributes);
-    }
+    struct ParallelData {
+        FS_USER* own;
+        ArchiveHandle archive_handle;
+        FileSys::Path file_path;
+        FileSys::Mode mode;
+        ResultVal<std::shared_ptr<File>> open_file_res;
+    };
 
-    ctx.SleepClientThread("fs_user::open_directly", open_timeout_ns, nullptr);
+    auto parallel_data = std::make_shared<ParallelData>();
+    parallel_data->own = this;
+    parallel_data->archive_handle = *archive_handle;
+    parallel_data->file_path = std::move(file_path);
+    parallel_data->mode = mode;
+
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            auto result = parallel_data->own->archives.OpenFileFromArchive(
+                parallel_data->archive_handle, parallel_data->file_path, parallel_data->mode);
+            parallel_data->open_file_res = result.first;
+            if (!parallel_data->open_file_res.Succeeded()) {
+                LOG_DEBUG(Service_FS, "failed to get a handle for file {}",
+                          parallel_data->file_path.DebugStr());
+            }
+            return result.second.count();
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x0803, 1, 2);
+            rb.Push(parallel_data->open_file_res.Code());
+            if (parallel_data->open_file_res.Succeeded()) {
+                std::shared_ptr<File> file = *parallel_data->open_file_res;
+                rb.PushMoveObjects(file->Connect());
+            } else {
+                rb.PushMoveObjects<Kernel::Object>(nullptr);
+            }
+            parallel_data->own->archives.CloseArchive(parallel_data->archive_handle);
+        });
 }
 
 void FS_USER::DeleteFile(Kernel::HLERequestContext& ctx) {
@@ -152,13 +184,32 @@ void FS_USER::DeleteFile(Kernel::HLERequestContext& ctx) {
     std::vector<u8> filename = rp.PopStaticBuffer();
     ASSERT(filename.size() == filename_size);
 
-    const FileSys::Path file_path(filename_type, std::move(filename));
+    struct ParallelData {
+        FS_USER* own;
+        ArchiveHandle archive_handle;
+        FileSys::Path file_path;
+        ResultCode res{0};
+    };
+
+    auto parallel_data = std::make_shared<ParallelData>();
+
+    parallel_data->own = this;
+    parallel_data->archive_handle = archive_handle;
+    parallel_data->file_path = FileSys::Path(filename_type, std::move(filename));
 
     LOG_DEBUG(Service_FS, "type={} size={} data={}", filename_type, filename_size,
-              file_path.DebugStr());
+              parallel_data->file_path.DebugStr());
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
-    rb.Push(archives.DeleteFileFromArchive(archive_handle, file_path));
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            parallel_data->res = parallel_data->own->archives.DeleteFileFromArchive(parallel_data->archive_handle,
+                                                               parallel_data->file_path);
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x804, 1, 0);
+            rb.Push(parallel_data->res);
+        });
 }
 
 void FS_USER::RenameFile(Kernel::HLERequestContext& ctx) {
@@ -176,17 +227,39 @@ void FS_USER::RenameFile(Kernel::HLERequestContext& ctx) {
     ASSERT(src_filename.size() == src_filename_size);
     ASSERT(dest_filename.size() == dest_filename_size);
 
-    const FileSys::Path src_file_path(src_filename_type, std::move(src_filename));
-    const FileSys::Path dest_file_path(dest_filename_type, std::move(dest_filename));
+    struct ParallelData {
+        FS_USER* own;
+        ArchiveHandle src_archive_handle;
+        ArchiveHandle dest_archive_handle;
+        FileSys::Path src_file_path;
+        FileSys::Path dest_file_path;
+        ResultCode res{0};
+    };
+
+    auto parallel_data = std::make_shared<ParallelData>();
+
+    parallel_data->own = this;
+    parallel_data->src_archive_handle = src_archive_handle;
+    parallel_data->dest_archive_handle = dest_archive_handle;
+    parallel_data->src_file_path = FileSys::Path(src_filename_type, std::move(src_filename));
+    parallel_data->dest_file_path = FileSys::Path(dest_filename_type, std::move(dest_filename));
 
     LOG_DEBUG(Service_FS,
               "src_type={} src_size={} src_data={} dest_type={} dest_size={} dest_data={}",
-              src_filename_type, src_filename_size, src_file_path.DebugStr(), dest_filename_type,
-              dest_filename_size, dest_file_path.DebugStr());
+              src_filename_type, src_filename_size, parallel_data->src_file_path.DebugStr(),
+              dest_filename_type, dest_filename_size, parallel_data->dest_file_path.DebugStr());
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
-    rb.Push(archives.RenameFileBetweenArchives(src_archive_handle, src_file_path,
-                                               dest_archive_handle, dest_file_path));
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            parallel_data->res = parallel_data->own->archives.RenameFileBetweenArchives(
+                parallel_data->src_archive_handle, parallel_data->src_file_path,
+                parallel_data->dest_archive_handle, parallel_data->dest_file_path);
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x805, 1, 0);
+            rb.Push(parallel_data->res);
+        });
 }
 
 void FS_USER::DeleteDirectory(Kernel::HLERequestContext& ctx) {
@@ -199,13 +272,32 @@ void FS_USER::DeleteDirectory(Kernel::HLERequestContext& ctx) {
     std::vector<u8> dirname = rp.PopStaticBuffer();
     ASSERT(dirname.size() == dirname_size);
 
-    const FileSys::Path dir_path(dirname_type, std::move(dirname));
+    struct ParallelData {
+        FS_USER* own;
+        ArchiveHandle archive_handle;
+        FileSys::Path dir_path;
+        ResultCode res{0};
+    };
+
+    auto parallel_data = std::make_shared<ParallelData>();
+
+    parallel_data->own = this;
+    parallel_data->archive_handle = archive_handle;
+    parallel_data->dir_path = FileSys::Path(dirname_type, std::move(dirname));
 
     LOG_DEBUG(Service_FS, "type={} size={} data={}", dirname_type, dirname_size,
-              dir_path.DebugStr());
+              parallel_data->dir_path.DebugStr());
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
-    rb.Push(archives.DeleteDirectoryFromArchive(archive_handle, dir_path));
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            parallel_data->res = parallel_data->own->archives.DeleteDirectoryFromArchive(
+                parallel_data->archive_handle, parallel_data->dir_path);
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x806, 1, 0);
+            rb.Push(parallel_data->res);
+        });
 }
 
 void FS_USER::DeleteDirectoryRecursively(Kernel::HLERequestContext& ctx) {
@@ -218,13 +310,32 @@ void FS_USER::DeleteDirectoryRecursively(Kernel::HLERequestContext& ctx) {
     std::vector<u8> dirname = rp.PopStaticBuffer();
     ASSERT(dirname.size() == dirname_size);
 
-    const FileSys::Path dir_path(dirname_type, std::move(dirname));
+    struct ParallelData {
+        FS_USER* own;
+        ArchiveHandle archive_handle;
+        FileSys::Path dir_path;
+        ResultCode res{0};
+    };
+
+    auto parallel_data = std::make_shared<ParallelData>();
+
+    parallel_data->own = this;
+    parallel_data->archive_handle = archive_handle;
+    parallel_data->dir_path = FileSys::Path(dirname_type, std::move(dirname));
 
     LOG_DEBUG(Service_FS, "type={} size={} data={}", dirname_type, dirname_size,
-              dir_path.DebugStr());
+              parallel_data->dir_path.DebugStr());
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
-    rb.Push(archives.DeleteDirectoryRecursivelyFromArchive(archive_handle, dir_path));
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            parallel_data->res = parallel_data->own->archives.DeleteDirectoryRecursivelyFromArchive(
+                parallel_data->archive_handle, parallel_data->dir_path);
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x807, 1, 0);
+            rb.Push(parallel_data->res);
+        });
 }
 
 void FS_USER::CreateFile(Kernel::HLERequestContext& ctx) {
@@ -239,13 +350,34 @@ void FS_USER::CreateFile(Kernel::HLERequestContext& ctx) {
     std::vector<u8> filename = rp.PopStaticBuffer();
     ASSERT(filename.size() == filename_size);
 
-    const FileSys::Path file_path(filename_type, std::move(filename));
+    struct ParallelData {
+        FS_USER* own;
+        ArchiveHandle archive_handle;
+        FileSys::Path file_path;
+        u32 file_size;
+        ResultCode res{0};
+    };
+
+    auto parallel_data = std::make_shared<ParallelData>();
+
+    parallel_data->own = this;
+    parallel_data->archive_handle = archive_handle;
+    parallel_data->file_path = FileSys::Path(filename_type, std::move(filename));
+    parallel_data->file_size = file_size;
 
     LOG_DEBUG(Service_FS, "type={} attributes={} size={:x} data={}", filename_type, attributes,
-              file_size, file_path.DebugStr());
+              file_size, parallel_data->file_path.DebugStr());
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
-    rb.Push(archives.CreateFileInArchive(archive_handle, file_path, file_size));
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            parallel_data->res = parallel_data->own->archives.CreateFileInArchive(
+                parallel_data->archive_handle, parallel_data->file_path, parallel_data->file_size);
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x808, 1, 0);
+            rb.Push(parallel_data->res);
+        });
 }
 
 void FS_USER::CreateDirectory(Kernel::HLERequestContext& ctx) {
@@ -257,13 +389,34 @@ void FS_USER::CreateDirectory(Kernel::HLERequestContext& ctx) {
     [[maybe_unused]] const auto attributes = rp.Pop<u32>();
     std::vector<u8> dirname = rp.PopStaticBuffer();
     ASSERT(dirname.size() == dirname_size);
-    const FileSys::Path dir_path(dirname_type, std::move(dirname));
+
+    struct ParallelData {
+        FS_USER* own;
+        ArchiveHandle archive_handle;
+        FileSys::Path dir_path;
+        ResultCode res{0};
+    };
+
+    auto parallel_data = std::make_shared<ParallelData>();
+
+    parallel_data->own = this;
+    parallel_data->archive_handle = archive_handle;
+    parallel_data->dir_path = FileSys::Path(dirname_type, std::move(dirname));
+
 
     LOG_DEBUG(Service_FS, "type={} size={} data={}", dirname_type, dirname_size,
-              dir_path.DebugStr());
+              parallel_data->dir_path.DebugStr());
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
-    rb.Push(archives.CreateDirectoryFromArchive(archive_handle, dir_path));
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            parallel_data->res = parallel_data->own->archives.CreateDirectoryFromArchive(
+                parallel_data->archive_handle, parallel_data->dir_path);
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x809, 1, 0);
+            rb.Push(parallel_data->res);
+        });
 }
 
 void FS_USER::RenameDirectory(Kernel::HLERequestContext& ctx) {
@@ -280,17 +433,39 @@ void FS_USER::RenameDirectory(Kernel::HLERequestContext& ctx) {
     ASSERT(src_dirname.size() == src_dirname_size);
     ASSERT(dest_dirname.size() == dest_dirname_size);
 
-    const FileSys::Path src_dir_path(src_dirname_type, std::move(src_dirname));
-    const FileSys::Path dest_dir_path(dest_dirname_type, std::move(dest_dirname));
+    struct ParallelData {
+        FS_USER* own;
+        ArchiveHandle src_archive_handle;
+        ArchiveHandle dest_archive_handle;
+        FileSys::Path src_dir_path;
+        FileSys::Path dest_dir_path;
+        ResultCode res{0};
+    };
+
+    auto parallel_data = std::make_shared<ParallelData>();
+
+    parallel_data->own = this;
+    parallel_data->src_archive_handle = src_archive_handle;
+    parallel_data->dest_archive_handle = dest_archive_handle;
+    parallel_data->src_dir_path = FileSys::Path(src_dirname_type, std::move(src_dirname));
+    parallel_data->dest_dir_path = FileSys::Path(dest_dirname_type, std::move(dest_dirname));
 
     LOG_DEBUG(Service_FS,
               "src_type={} src_size={} src_data={} dest_type={} dest_size={} dest_data={}",
-              src_dirname_type, src_dirname_size, src_dir_path.DebugStr(), dest_dirname_type,
-              dest_dirname_size, dest_dir_path.DebugStr());
+              src_dirname_type, src_dirname_size, parallel_data->src_dir_path.DebugStr(),
+              dest_dirname_type, dest_dirname_size, parallel_data->dest_dir_path.DebugStr());
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
-    rb.Push(archives.RenameDirectoryBetweenArchives(src_archive_handle, src_dir_path,
-                                                    dest_archive_handle, dest_dir_path));
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            parallel_data->res = parallel_data->own->archives.RenameDirectoryBetweenArchives(
+                parallel_data->src_archive_handle, parallel_data->src_dir_path,
+                parallel_data->dest_archive_handle, parallel_data->dest_dir_path);
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x80A, 1, 0);
+            rb.Push(parallel_data->res);
+        });
 }
 
 void FS_USER::OpenDirectory(Kernel::HLERequestContext& ctx) {
@@ -301,25 +476,49 @@ void FS_USER::OpenDirectory(Kernel::HLERequestContext& ctx) {
     std::vector<u8> dirname = rp.PopStaticBuffer();
     ASSERT(dirname.size() == dirname_size);
 
-    const FileSys::Path dir_path(dirname_type, std::move(dirname));
+    struct ParallelData {
+        FS_USER* own;
+        ArchiveHandle archive_handle;
+        FileSys::Path dir_path;
+        FileSys::LowPathType dirname_type;
+        u32 dirname_size;
+        ResultVal<std::shared_ptr<Directory>> open_dir_res;
+    };
+
+    auto parallel_data = std::make_shared<ParallelData>();
+
+    parallel_data->own = this;
+    parallel_data->archive_handle = archive_handle;
+    parallel_data->dir_path = FileSys::Path(dirname_type, std::move(dirname));
+    parallel_data->dirname_type = dirname_type;
+    parallel_data->dirname_size = dirname_size;
 
     LOG_DEBUG(Service_FS, "type={} size={} data={}", dirname_type, dirname_size,
-              dir_path.DebugStr());
+              parallel_data->dir_path.DebugStr());
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-    ResultVal<std::shared_ptr<Directory>> dir_res =
-        archives.OpenDirectoryFromArchive(archive_handle, dir_path);
-    rb.Push(dir_res.Code());
-    if (dir_res.Succeeded()) {
-        std::shared_ptr<Directory> directory = *dir_res;
-        auto [server, client] = system.Kernel().CreateSessionPair(directory->GetName());
-        directory->ClientConnected(server);
-        rb.PushMoveObjects(client);
-    } else {
-        LOG_ERROR(Service_FS, "failed to get a handle for directory type={} size={} data={}",
-                  dirname_type, dirname_size, dir_path.DebugStr());
-        rb.PushMoveObjects<Kernel::Object>(nullptr);
-    }
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            parallel_data->open_dir_res = parallel_data->own->archives.OpenDirectoryFromArchive(
+                parallel_data->archive_handle, parallel_data->dir_path);
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, 0x80B, 1, 2);
+            rb.Push(parallel_data->open_dir_res.Code());
+            if (parallel_data->open_dir_res.Succeeded()) {
+                std::shared_ptr<Directory> directory = *parallel_data->open_dir_res;
+                auto [server, client] =
+                    parallel_data->own->system.Kernel().CreateSessionPair(directory->GetName());
+                directory->ClientConnected(server);
+                rb.PushMoveObjects(client);
+            } else {
+                LOG_ERROR(Service_FS,
+                          "failed to get a handle for directory type={} size={} data={}",
+                          parallel_data->dirname_type, parallel_data->dirname_size,
+                          parallel_data->dir_path.DebugStr());
+                rb.PushMoveObjects<Kernel::Object>(nullptr);
+            }
+        });
 }
 
 void FS_USER::OpenArchive(Kernel::HLERequestContext& ctx) {
