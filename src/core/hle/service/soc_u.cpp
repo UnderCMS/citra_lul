@@ -700,45 +700,75 @@ void SOC_U::RecvFromOther(Kernel::HLERequestContext& ctx) {
     u32 flags = rp.Pop<u32>();
     u32 addr_len = rp.Pop<u32>();
     rp.PopPID();
-    auto& buffer = rp.PopMappedBuffer();
 
-    CTRSockAddr ctr_src_addr;
-    std::vector<u8> output_buff(len);
-    std::vector<u8> addr_buff(sizeof(ctr_src_addr));
-    sockaddr src_addr;
-    socklen_t src_addr_len = sizeof(src_addr);
+    struct ParallelData {
+        SOC_U* own{};
+        Kernel::MappedBuffer buffer;
+        s32 ret{};
+        u32 len{};
+        u32 flags{};
+        u32 addr_len{};
+        std::vector<u8> output_buff;
+        std::vector<u8> addr_buff;
+#ifdef _WIN32
+        using SOCKET = unsigned long long;
+        SOCKET socket_fd{}; ///< The socket descriptor
+#else
+        u32 socket_fd{}; ///< The socket descriptor
+#endif
+        ParallelData(const Kernel::MappedBuffer& buf) : buffer(buf) {}
+    };
 
-    s32 ret = -1;
-    if (fd_info->second.blocking) {
-        // PreTimerAdjust();
-    }
+    auto parallel_data = std::make_shared<ParallelData>(rp.PopMappedBuffer());
+    parallel_data->own = this;
+    parallel_data->ret = -1;
+    parallel_data->len = len;
+    parallel_data->flags = flags;
+    parallel_data->addr_len = addr_len;
+    parallel_data->output_buff.resize(len);
+    parallel_data->addr_buff.resize(addr_len);
+    parallel_data->socket_fd = fd_info->second.socket_fd;
 
-    if (addr_len > 0) {
-        ret = ::recvfrom(fd_info->second.socket_fd, reinterpret_cast<char*>(output_buff.data()),
-                         len, flags, &src_addr, &src_addr_len);
-        if (ret >= 0 && src_addr_len > 0) {
-            ctr_src_addr = CTRSockAddr::FromPlatform(src_addr);
-            std::memcpy(addr_buff.data(), &ctr_src_addr, sizeof(ctr_src_addr));
-        }
-    } else {
-        ret = ::recvfrom(fd_info->second.socket_fd, reinterpret_cast<char*>(output_buff.data()),
-                         len, flags, NULL, 0);
-        addr_buff.resize(0);
-    }
-    if (fd_info->second.blocking) {
-        // PostTimerAdjust(ctx, "RecvFromOther");
-    }
-    if (ret == SOCKET_ERROR_VALUE) {
-        ret = TranslateError(GET_ERRNO);
-    } else {
-        buffer.Write(output_buff.data(), 0, ret);
-    }
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            sockaddr src_addr;
+            socklen_t src_addr_len = sizeof(src_addr);
+            CTRSockAddr ctr_src_addr;
+            if (parallel_data->addr_len > 0) {
+                // Only get src adr if input adr available
+                parallel_data->ret =
+                    ::recvfrom(parallel_data->socket_fd,
+                               reinterpret_cast<char*>(parallel_data->output_buff.data()),
+                               parallel_data->len, parallel_data->flags, &src_addr, &src_addr_len);
+                if (parallel_data->ret >= 0 && src_addr_len > 0) {
+                    ctr_src_addr = CTRSockAddr::FromPlatform(src_addr);
+                    std::memcpy(parallel_data->addr_buff.data(), &ctr_src_addr,
+                                parallel_data->addr_len);
+                }
+            } else {
+                parallel_data->ret =
+                    ::recvfrom(parallel_data->socket_fd,
+                               reinterpret_cast<char*>(parallel_data->output_buff.data()),
+                               parallel_data->len, parallel_data->flags, NULL, 0);
+                parallel_data->addr_buff.resize(0);
+            }
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            if (parallel_data->ret == SOCKET_ERROR_VALUE) {
+                parallel_data->ret = TranslateError(GET_ERRNO);
+            } else {
+                parallel_data->buffer.Write(parallel_data->output_buff.data(), 0,
+                                            parallel_data->ret);
+            }
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(2, 4);
-    rb.Push(RESULT_SUCCESS);
-    rb.Push(ret);
-    rb.PushStaticBuffer(std::move(addr_buff), 0);
-    rb.PushMappedBuffer(buffer);
+            IPC::RequestBuilder rb(ctx, 0x07, 2, 4);
+            rb.Push(RESULT_SUCCESS);
+            rb.Push(parallel_data->ret);
+            rb.PushStaticBuffer(std::move(parallel_data->addr_buff), 0);
+            rb.PushMappedBuffer(parallel_data->buffer);
+        },
+        fd_info->second.blocking);
 }
 
 void SOC_U::RecvFrom(Kernel::HLERequestContext& ctx) {
@@ -758,48 +788,75 @@ void SOC_U::RecvFrom(Kernel::HLERequestContext& ctx) {
     u32 addr_len = rp.Pop<u32>();
     rp.PopPID();
 
-    CTRSockAddr ctr_src_addr;
-    std::vector<u8> output_buff(len);
-    std::vector<u8> addr_buff(addr_len);
-    sockaddr src_addr;
-    socklen_t src_addr_len = sizeof(src_addr);
+    struct ParallelData {
+        SOC_U* own;
+        s32 ret;
+        u32 len;
+        u32 flags;
+        u32 addr_len;
+        std::vector<u8> output_buff;
+        std::vector<u8> addr_buff;
+#ifdef _WIN32
+        using SOCKET = unsigned long long;
+        SOCKET socket_fd; ///< The socket descriptor
+#else
+        u32 socket_fd;   ///< The socket descriptor
+#endif
+    };
 
-    s32 ret = -1;
-    if (fd_info->second.blocking) {
-        // PreTimerAdjust();
-    }
-    if (addr_len > 0) {
-        // Only get src adr if input adr available
-        ret = ::recvfrom(fd_info->second.socket_fd, reinterpret_cast<char*>(output_buff.data()),
-                         len, flags, &src_addr, &src_addr_len);
-        if (ret >= 0 && src_addr_len > 0) {
-            ctr_src_addr = CTRSockAddr::FromPlatform(src_addr);
-            std::memcpy(addr_buff.data(), &ctr_src_addr, addr_len);
-        }
-    } else {
-        ret = ::recvfrom(fd_info->second.socket_fd, reinterpret_cast<char*>(output_buff.data()),
-                         len, flags, NULL, 0);
-        addr_buff.resize(0);
-    }
-    if (fd_info->second.blocking) {
-        // PostTimerAdjust(ctx, "RecvFrom");
-    }
+    auto parallel_data = std::make_shared<ParallelData>();
+    parallel_data->own = this;
+    parallel_data->ret = -1;
+    parallel_data->len = len;
+    parallel_data->flags = flags;
+    parallel_data->addr_len = addr_len;
+    parallel_data->output_buff.resize(len);
+    parallel_data->addr_buff.resize(addr_len);
+    parallel_data->socket_fd = fd_info->second.socket_fd;
 
-    s32 total_received = ret;
-    if (ret == SOCKET_ERROR_VALUE) {
-        ret = TranslateError(GET_ERRNO);
-        total_received = 0;
-    }
+    ctx.RunInParallelPool(
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            sockaddr src_addr;
+            socklen_t src_addr_len = sizeof(src_addr);
+            CTRSockAddr ctr_src_addr;
+            if (parallel_data->addr_len > 0) {
+                // Only get src adr if input adr available
+                parallel_data->ret =
+                    ::recvfrom(parallel_data->socket_fd,
+                               reinterpret_cast<char*>(parallel_data->output_buff.data()),
+                               parallel_data->len, parallel_data->flags, &src_addr, &src_addr_len);
+                if (parallel_data->ret >= 0 && src_addr_len > 0) {
+                    ctr_src_addr = CTRSockAddr::FromPlatform(src_addr);
+                    std::memcpy(parallel_data->addr_buff.data(), &ctr_src_addr,
+                                parallel_data->addr_len);
+                }
+            } else {
+                parallel_data->ret =
+                    ::recvfrom(parallel_data->socket_fd,
+                               reinterpret_cast<char*>(parallel_data->output_buff.data()),
+                               parallel_data->len, parallel_data->flags, NULL, 0);
+                parallel_data->addr_buff.resize(0);
+            }
+            return 0;
+        },
+        [parallel_data](std::shared_ptr<Kernel::Thread>& thread, Kernel::HLERequestContext& ctx) {
+            s32 total_received = parallel_data->ret;
+            if (parallel_data->ret == SOCKET_ERROR_VALUE) {
+                parallel_data->ret = TranslateError(GET_ERRNO);
+                total_received = 0;
+            }
 
-    // Write only the data we received to avoid overwriting parts of the buffer with zeros
-    output_buff.resize(total_received);
+            // Write only the data we received to avoid overwriting parts of the buffer with zeros
+            parallel_data->output_buff.resize(total_received);
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(3, 4);
-    rb.Push(RESULT_SUCCESS);
-    rb.Push(ret);
-    rb.Push(total_received);
-    rb.PushStaticBuffer(std::move(output_buff), 0);
-    rb.PushStaticBuffer(std::move(addr_buff), 1);
+            IPC::RequestBuilder rb(ctx, 0x08, 3, 4);
+            rb.Push(RESULT_SUCCESS);
+            rb.Push(parallel_data->ret);
+            rb.Push(total_received);
+            rb.PushStaticBuffer(std::move(parallel_data->output_buff), 0);
+            rb.PushStaticBuffer(std::move(parallel_data->addr_buff), 1);
+        },
+        fd_info->second.blocking);
 }
 
 void SOC_U::Poll(Kernel::HLERequestContext& ctx) {
