@@ -301,7 +301,7 @@ std::pair<int, int> SOC_U::TranslateSockOpt(int level, int opt) {
     return std::make_pair(SOL_SOCKET, opt);
 }
 
-void SOC_U::TranslateSockOptDataToPlatform(std::vector<u8>& out, const std::vector<u8>& in,
+static void SOC_U::TranslateSockOptDataToPlatform(std::vector<u8>& out, const std::vector<u8>& in,
                                            int platform_level, int platform_opt) {
     // linger structure may be different between 3DS and platform
     if (platform_level == SOL_SOCKET && platform_opt == SO_LINGER &&
