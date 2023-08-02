@@ -66,7 +66,7 @@ private:
     static const std::unordered_map<u64, std::pair<int, int>> sockopt_map;
     static std::pair<int, int> TranslateSockOpt(int level, int opt);
     static void TranslateSockOptDataToPlatform(std::vector<u8>& out, const std::vector<u8>& in,
-                                        int platform_level, int platform_opt);
+                                               int platform_level, int platform_opt);
     bool GetSocketBlocking(const SocketHolder& socket_holder);
     u32 SetSocketBlocking(SocketHolder& socket_holder, bool blocking);
 
