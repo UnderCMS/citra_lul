@@ -956,11 +956,10 @@ public:
         void GetNsDataNewFlagPrivileged(Kernel::HLERequestContext& ctx);
 
     protected:
+        OnlineService online_service;
         std::shared_ptr<Module> boss;
 
     private:
-        OnlineService online_service;
-
         u8 new_arrival_flag;
         u8 ns_data_new_flag;
         u8 ns_data_new_flag_privileged;

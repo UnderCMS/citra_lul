@@ -288,11 +288,13 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-    rb.Push(RESULT_SUCCESS);
-    rb.PushMappedBuffer(buffer);
+    LOG_DEBUG(Service_BOSS, "property_id={:#06X}, size={:#010X}", property_id, size);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) property_id={:#06X}, size={:#010X}", property_id, size);
+    const auto result = online_service.SendProperty(property_id, size, buffer);
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
+    rb.Push(result);
+    rb.PushMappedBuffer(buffer);
 }
 
 void Module::Interface::SendPropertyHandle(Kernel::HLERequestContext& ctx) {
@@ -312,12 +314,14 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
-    rb.Push(RESULT_SUCCESS);
-    rb.Push<u32>(size); /// Should be actual read size
-    rb.PushMappedBuffer(buffer);
+    LOG_DEBUG(Service_BOSS, "property_id={:#06X}, size={:#010X}", property_id, size);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) property_id={:#06X}, size={:#010X}", property_id, size);
+    const auto result = online_service.ReceiveProperty(property_id, size, buffer);
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
+    rb.Push(result);
+    rb.Push<u32>(size);
+    rb.PushMappedBuffer(buffer);
 }
 
 void Module::Interface::UpdateTaskInterval(Kernel::HLERequestContext& ctx) {
@@ -338,6 +342,13 @@ void Module::Interface::UpdateTaskCount(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     const u32 unk_param2 = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
+
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "TaskId cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
@@ -364,6 +375,13 @@ void Module::Interface::GetTaskCount(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "TaskId cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+    }
+
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(RESULT_SUCCESS);
     rb.Push<u32>(0); // stub 0 ( 32bit value)
@@ -377,9 +395,13 @@ void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    // Not sure what this is but it's not the task status. Maybe it's the status of the service
+    // after running the task?
+    constexpr u8 task_service_status = 1;
+
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u8>(0); // stub 0 ( 8bit value)
+    rb.Push<u8>(task_service_status);
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
@@ -917,7 +939,7 @@ void Module::Interface::GetNsDataNewFlagPrivileged(Kernel::HLERequestContext& ct
 }
 
 Module::Interface::Interface(std::shared_ptr<Module> boss, const char* name, u32 max_session)
-    : ServiceFramework(name, max_session), boss(std::move(boss)), online_service(boss->system) {}
+    : ServiceFramework(name, max_session), online_service(boss->system), boss(std::move(boss)) {}
 
 Module::Module(Core::System& system_) : system(system_) {
     using namespace Kernel;

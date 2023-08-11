@@ -3,6 +3,7 @@
 // Refer to the license.txt file included.
 
 #include "common/file_util.h"
+#include "common/string_util.h"
 #include "core/core.h"
 #include "core/file_sys/archive_backend.h"
 #include "core/file_sys/archive_extsavedata.h"
@@ -204,7 +205,6 @@ std::vector<FileSys::Entry> OnlineService::GetBossExtDataFiles() {
 FileSys::Path OnlineService::GetBossDataDir() {
     const u32 high = static_cast<u32>(extdata_id >> 32);
     const u32 low = static_cast<u32>(extdata_id & 0xFFFFFFFF);
-
     return FileSys::ConstructExtDataBinaryPath(1, high, low);
 }
 
@@ -297,6 +297,57 @@ u16 OnlineService::GetNsDataIdList(const u32 filter, const u32 max_entries,
 
     buffer.Write(output_entries.data(), 0, sizeof(u32) * output_entries.size());
     return static_cast<u16>(output_entries.size());
+}
+
+ResultCode OnlineService::SendProperty(const u16 id, const u32 size, Kernel::MappedBuffer& buffer) {
+    const auto property_id = static_cast<PropertyID>(id);
+    if (!current_props.properties.contains(property_id)) {
+        LOG_ERROR(Service_BOSS, "Unknown property with id {:#06X}", property_id);
+        return ResultCode(1);
+    }
+
+    auto& prop = current_props.properties[property_id];
+    std::visit(
+        [&](auto&& arg) {
+            using T = std::decay_t<decltype(arg)>;
+            if (size != sizeof(T)) {
+                LOG_ERROR(Service_BOSS,
+                          "Unexpected size of property {:#06X}, was expecting {}, got {}",
+                          property_id, sizeof(T), size);
+            }
+
+            T current_prop;
+            buffer.Read(&current_prop, 0, size);
+            prop = current_prop;
+        },
+        prop);
+
+    return RESULT_SUCCESS;
+}
+
+ResultCode OnlineService::ReceiveProperty(const u16 id, const u32 size,
+                                          Kernel::MappedBuffer& buffer) {
+    const auto property_id = static_cast<PropertyID>(id);
+    if (!current_props.properties.contains(property_id)) {
+        LOG_ERROR(Service_BOSS, "Unknown property with id {:#06X}", property_id);
+        return ResultCode(1);
+    }
+
+    auto& prop = current_props.properties[property_id];
+    std::visit(
+        [&](auto&& arg) {
+            using T = std::decay_t<decltype(arg)>;
+            if (size != sizeof(T)) {
+                LOG_ERROR(Service_BOSS,
+                          "Unexpected size of property {:#06X}, was expecting {}, got {}",
+                          property_id, sizeof(T), size);
+            }
+
+            buffer.Write(&prop, 0, size);
+        },
+        prop);
+
+    return RESULT_SUCCESS;
 }
 
 } // namespace Service::BOSS

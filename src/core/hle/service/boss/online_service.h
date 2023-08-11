@@ -140,6 +140,8 @@ public:
     ResultCode UnregisterTask(const u32 size, Kernel::MappedBuffer& buffer);
     void GetTaskIdList();
     u16 GetNsDataIdList(const u32 filter, const u32 max_entries, Kernel::MappedBuffer& buffer);
+    ResultCode SendProperty(const u16 id, const u32 size, Kernel::MappedBuffer& buffer);
+    ResultCode ReceiveProperty(const u16 id, const u32 size, Kernel::MappedBuffer& buffer);
 
 private:
     std::vector<FileSys::Entry> GetBossExtDataFiles();
