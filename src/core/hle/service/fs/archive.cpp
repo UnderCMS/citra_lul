@@ -365,6 +365,10 @@ void ArchiveManager::RegisterArchiveTypes() {
         std::make_unique<FileSys::ArchiveFactory_SystemSaveData>(nand_directory);
     RegisterArchiveType(std::move(systemsavedata_factory), ArchiveIdCode::SystemSaveData);
 
+    auto bossextsavedata_factory =
+        std::make_unique<FileSys::ArchiveFactory_ExtSaveData>(sdmc_directory, false, true);
+    RegisterArchiveType(std::move(bossextsavedata_factory), ArchiveIdCode::BossExtSaveData);
+
     auto selfncch_factory = std::make_unique<FileSys::ArchiveFactory_SelfNCCH>();
     RegisterArchiveType(std::move(selfncch_factory), ArchiveIdCode::SelfNCCH);
 }

@@ -14,13 +14,15 @@ namespace Service::BOSS {
 
 void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    const u64 programID = rp.Pop<u64>();
+    const u64 program_id = rp.Pop<u64>();
     rp.PopPID();
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
-    rb.Push(RESULT_SUCCESS);
+    LOG_DEBUG(Service_BOSS, "called, program_id={:#018X}", program_id);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) programID={:#018X}", programID);
+    const auto result = online_service.InitializeSession(program_id);
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
+    rb.Push(result);
 }
 
 void Module::Interface::SetStorageInfo(Kernel::HLERequestContext& ctx) {
@@ -131,12 +133,14 @@ void Module::Interface::RegisterTask(Kernel::HLERequestContext& ctx) {
     const u8 unk_param3 = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
 
+    LOG_DEBUG(Service_BOSS, "called, size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}", size,
+              unk_param2, unk_param3);
+
+    online_service.RegisterTask(size, buffer);
+
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
-
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}",
-                size, unk_param2, unk_param3);
 }
 
 void Module::Interface::UnregisterTask(Kernel::HLERequestContext& ctx) {
@@ -145,11 +149,13 @@ void Module::Interface::UnregisterTask(Kernel::HLERequestContext& ctx) {
     const u8 unk_param2 = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-    rb.Push(RESULT_SUCCESS);
-    rb.PushMappedBuffer(buffer);
+    LOG_DEBUG(Service_BOSS, "called, size={:#010X}, unk_param2={:#04X}", size, unk_param2);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}", size, unk_param2);
+    const auto result = online_service.UnregisterTask(size, buffer);
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
+    rb.Push(result);
+    rb.PushMappedBuffer(buffer);
 }
 
 void Module::Interface::ReconfigureTask(Kernel::HLERequestContext& ctx) {
@@ -168,10 +174,12 @@ void Module::Interface::ReconfigureTask(Kernel::HLERequestContext& ctx) {
 void Module::Interface::GetTaskIdList(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
 
+    LOG_DEBUG(Service_BOSS, "called");
+
+    online_service.GetTaskIdList();
+
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
-
-    LOG_WARNING(Service_BOSS, "(STUBBED) called");
 }
 
 void Module::Interface::GetStepIdList(Kernel::HLERequestContext& ctx) {
@@ -194,16 +202,18 @@ void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010X}, max_entries={:#010X}, "
+              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
+              filter, max_entries, word_index_start, start_ns_data_id);
+
+    const u16 entries_count = online_service.GetNsDataIdList(filter, max_entries, buffer);
+
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u16>(0); /// Actual number of output entries
-    rb.Push<u16>(0); /// Last word-index copied to output in the internal NsDataId list.
+    rb.Push<u16>(entries_count); /// Actual number of output entries
+    rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
-
-    LOG_WARNING(Service_BOSS,
-                "(STUBBED) filter={:#010X}, max_entries={:#010X}, "
-                "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-                filter, max_entries, word_index_start, start_ns_data_id);
 }
 
 void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
@@ -214,16 +224,18 @@ void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010X}, max_entries={:#010X}, "
+              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
+              filter, max_entries, word_index_start, start_ns_data_id);
+
+    const u16 entries_count = online_service.GetNsDataIdList(filter, max_entries, buffer);
+
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u16>(0); /// Actual number of output entries
-    rb.Push<u16>(0); /// Last word-index copied to output in the internal NsDataId list.
+    rb.Push<u16>(entries_count); /// Actual number of output entries
+    rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
-
-    LOG_WARNING(Service_BOSS,
-                "(STUBBED) filter={:#010X}, max_entries={:#010X}, "
-                "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-                filter, max_entries, word_index_start, start_ns_data_id);
 }
 
 void Module::Interface::GetNsDataIdList2(Kernel::HLERequestContext& ctx) {
@@ -234,16 +246,18 @@ void Module::Interface::GetNsDataIdList2(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010X}, max_entries={:#010X}, "
+              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
+              filter, max_entries, word_index_start, start_ns_data_id);
+
+    const u16 entries_count = online_service.GetNsDataIdList(filter, max_entries, buffer);
+
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u16>(0); /// Actual number of output entries
-    rb.Push<u16>(0); /// Last word-index copied to output in the internal NsDataId list.
+    rb.Push<u16>(entries_count); /// Actual number of output entries
+    rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
-
-    LOG_WARNING(Service_BOSS,
-                "(STUBBED) filter={:#010X}, max_entries={:#010X}, "
-                "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-                filter, max_entries, word_index_start, start_ns_data_id);
 }
 
 void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
@@ -254,16 +268,18 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010X}, max_entries={:#010X}, "
+              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
+              filter, max_entries, word_index_start, start_ns_data_id);
+
+    const u16 entries_count = online_service.GetNsDataIdList(filter, max_entries, buffer);
+
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u16>(0); /// Actual number of output entries
-    rb.Push<u16>(0); /// Last word-index copied to output in the internal NsDataId list.
+    rb.Push<u16>(entries_count); /// Actual number of output entries
+    rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
-
-    LOG_WARNING(Service_BOSS,
-                "(STUBBED) filter={:#010X}, max_entries={:#010X}, "
-                "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-                filter, max_entries, word_index_start, start_ns_data_id);
 }
 
 void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
@@ -901,9 +917,9 @@ void Module::Interface::GetNsDataNewFlagPrivileged(Kernel::HLERequestContext& ct
 }
 
 Module::Interface::Interface(std::shared_ptr<Module> boss, const char* name, u32 max_session)
-    : ServiceFramework(name, max_session), boss(std::move(boss)) {}
+    : ServiceFramework(name, max_session), boss(std::move(boss)), online_service(boss->system) {}
 
-Module::Module(Core::System& system) {
+Module::Module(Core::System& system_) : system(system_) {
     using namespace Kernel;
     // TODO: verify ResetType
     task_finish_event =

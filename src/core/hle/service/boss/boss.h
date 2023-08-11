@@ -8,6 +8,7 @@
 #include <boost/serialization/shared_ptr.hpp>
 #include "core/global.h"
 #include "core/hle/kernel/event.h"
+#include "core/hle/service/boss/online_service.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -18,7 +19,7 @@ namespace Service::BOSS {
 
 class Module final {
 public:
-    explicit Module(Core::System& system);
+    explicit Module(Core::System& system_);
     ~Module() = default;
 
     class Interface : public ServiceFramework<Interface> {
@@ -958,6 +959,8 @@ public:
         std::shared_ptr<Module> boss;
 
     private:
+        OnlineService online_service;
+
         u8 new_arrival_flag;
         u8 ns_data_new_flag;
         u8 ns_data_new_flag_privileged;
@@ -974,6 +977,7 @@ public:
     };
 
 private:
+    Core::System& system;
     std::shared_ptr<Kernel::Event> task_finish_event;
 
     template <class Archive>
