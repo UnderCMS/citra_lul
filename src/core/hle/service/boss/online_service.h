@@ -23,23 +23,23 @@ class Path;
 
 namespace Service::BOSS {
 
-constexpr u32 boss_payload_header_length = 0x28;
-constexpr u32 boss_magic = Loader::MakeMagic('b', 'o', 's', 's');
-constexpr u32 boss_payload_magic = 0x10001;
-constexpr u64 news_prog_id = 0x0004013000003502;
+constexpr u32 BOSS_PAYLOAD_HEADER_LENGTH = 0x28;
+constexpr u32 BOSS_MAGIC = Loader::MakeMagic('b', 'o', 's', 's');
+constexpr u32 BOSS_PAYLOAD_MAGIC = 0x10001;
+constexpr u64 NEWS_PROG_ID = 0x0004013000003502;
 
-constexpr u32 boss_content_header_length = 0x132;
-constexpr u32 boss_header_with_hash_length = 0x13C;
-constexpr u32 boss_entire_header_length = boss_content_header_length + boss_header_with_hash_length;
-constexpr u32 boss_extdata_header_length = 0x18;
-constexpr u32 boss_s_entry_size = 0xC00;
-constexpr u32 boss_save_header_size = 4;
+constexpr u32 BOSS_CONTENT_HEADER_LENGTH = 0x132;
+constexpr u32 BOSS_HEADER_WITH_HASH_LENGTH = 0x13C;
+constexpr u32 BOSS_ENTIRE_HEADER_LENGTH = BOSS_CONTENT_HEADER_LENGTH + BOSS_HEADER_WITH_HASH_LENGTH;
+constexpr u32 BOSS_EXTDATA_HEADER_LENGTH = 0x18;
+constexpr u32 BOSS_S_ENTRY_SIZE = 0xC00;
+constexpr u32 BOSS_SAVE_HEADER_SIZE = 4;
 
-constexpr u8 task_id_size = 8;
-constexpr size_t url_size = 0x200;
-constexpr size_t headers_size = 0x360;
-constexpr size_t certidlist_size = 3;
-constexpr size_t taskidlist_size = 0x400;
+constexpr size_t TASK_ID_SIZE = 8;
+constexpr size_t URL_SIZE = 0x200;
+constexpr size_t HEADERS_SIZE = 0x360;
+constexpr size_t CERTIDLIST_SIZE = 3;
+constexpr size_t TASKIDLIST_SIZE = 0x400;
 
 constexpr std::array<u8, 8> boss_system_savedata_id{
     0x00, 0x00, 0x00, 0x00, 0x34, 0x00, 0x01, 0x00,
@@ -68,27 +68,27 @@ struct NsDataEntry {
 };
 
 enum class PropertyID : u16 {
-    INTERVAL = 0x03,
-    DURATION = 0x04,
-    URL = 0x07,
-    HEADERS = 0x0D,
-    CERTID = 0x0E,
-    CERTIDLIST = 0x0F,
-    LOADCERT = 0x10,
-    LOADROOTCERT = 0x11,
-    TOTALTASKS = 0x35,
-    TASKIDLIST = 0x36,
+    Interval = 0x03,
+    Duration = 0x04,
+    Url = 0x07,
+    Headers = 0x0D,
+    CertId = 0x0E,
+    CertIdList = 0x0F,
+    LoadCert = 0x10,
+    LoadRootCert = 0x11,
+    TotalTasks = 0x35,
+    TaskIdList = 0x36,
 };
 
 struct BossSVData {
     INSERT_PADDING_BYTES(0x10);
     u64 program_id;
-    std::array<char, task_id_size> task_id;
+    std::array<char, TASK_ID_SIZE> task_id;
 };
 
 struct BossSSData {
     INSERT_PADDING_BYTES(0x21C);
-    std::array<u8, url_size> url;
+    std::array<u8, URL_SIZE> url;
 };
 
 using BossTaskProperty = std::variant<u8, u16, u32, std::vector<u8>, std::vector<u32>>;
@@ -98,21 +98,21 @@ struct BossTaskProperties {
         {static_cast<PropertyID>(0x00), u8()},
         {static_cast<PropertyID>(0x01), u8()},
         {static_cast<PropertyID>(0x02), u32()},
-        {PropertyID::INTERVAL, u32()},
-        {PropertyID::DURATION, u32()},
+        {PropertyID::Interval, u32()},
+        {PropertyID::Duration, u32()},
         {static_cast<PropertyID>(0x05), u8()},
         {static_cast<PropertyID>(0x06), u8()},
-        {PropertyID::URL, std::vector<u8>(url_size)},
+        {PropertyID::Url, std::vector<u8>(URL_SIZE)},
         {static_cast<PropertyID>(0x08), u32()},
         {static_cast<PropertyID>(0x09), u8()},
         {static_cast<PropertyID>(0x0A), std::vector<u8>(0x100)},
         {static_cast<PropertyID>(0x0B), std::vector<u8>(0x200)},
         {static_cast<PropertyID>(0x0C), u32()},
-        {PropertyID::HEADERS, std::vector<u8>(headers_size)},
-        {PropertyID::CERTID, u32()},
-        {PropertyID::CERTIDLIST, std::vector<u32>(certidlist_size)},
-        {PropertyID::LOADCERT, u8()},
-        {PropertyID::LOADROOTCERT, u8()},
+        {PropertyID::Headers, std::vector<u8>(HEADERS_SIZE)},
+        {PropertyID::CertId, u32()},
+        {PropertyID::CertIdList, std::vector<u32>(CERTIDLIST_SIZE)},
+        {PropertyID::LoadCert, u8()},
+        {PropertyID::LoadRootCert, u8()},
         {static_cast<PropertyID>(0x12), u8()},
         {static_cast<PropertyID>(0x13), u32()},
         {static_cast<PropertyID>(0x14), u32()},
@@ -123,8 +123,8 @@ struct BossTaskProperties {
         {static_cast<PropertyID>(0x1A), u8()},
         {static_cast<PropertyID>(0x1B), u32()},
         {static_cast<PropertyID>(0x1C), u32()},
-        {PropertyID::TOTALTASKS, u16()},
-        {PropertyID::TASKIDLIST, std::vector<u8>(taskidlist_size)},
+        {PropertyID::TotalTasks, u16()},
+        {PropertyID::TaskIdList, std::vector<u8>(TASKIDLIST_SIZE)},
         {static_cast<PropertyID>(0x3B), u32()},
         {static_cast<PropertyID>(0x3E), std::vector<u8>(0x200)},
         {static_cast<PropertyID>(0x3F), u8()},

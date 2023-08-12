@@ -17,12 +17,12 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
     const u64 program_id = rp.Pop<u64>();
     rp.PopPID();
 
-    LOG_DEBUG(Service_BOSS, "called, program_id={:#018X}", program_id);
-
     const auto result = online_service.InitializeSession(program_id);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(result);
+
+    LOG_DEBUG(Service_BOSS, "called, program_id={:#018x}", program_id);
 }
 
 void Module::Interface::SetStorageInfo(Kernel::HLERequestContext& ctx) {
@@ -35,7 +35,7 @@ void Module::Interface::SetStorageInfo(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
 
     LOG_WARNING(Service_BOSS,
-                "(STUBBED) extdata_id={:#018X}, boss_size={:#010X}, extdata_type={:#04X}",
+                "(STUBBED) extdata_id={:#018x}, boss_size={:#010x}, extdata_type={:#04x}",
                 extdata_id, boss_size, extdata_type);
 }
 
@@ -82,7 +82,7 @@ void Module::Interface::RegisterPrivateClientCert(Kernel::HLERequestContext& ctx
     rb.PushMappedBuffer(buffer1);
     rb.PushMappedBuffer(buffer2);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) buffer1_size={:#010X}, buffer2_size={:#010X}, ",
+    LOG_WARNING(Service_BOSS, "(STUBBED) buffer1_size={:#010x}, buffer2_size={:#010x}, ",
                 buffer1_size, buffer2_size);
 }
 
@@ -133,14 +133,14 @@ void Module::Interface::RegisterTask(Kernel::HLERequestContext& ctx) {
     const u8 unk_param3 = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
 
-    LOG_DEBUG(Service_BOSS, "called, size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}", size,
-              unk_param2, unk_param3);
-
     online_service.RegisterTask(size, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
+
+    LOG_DEBUG(Service_BOSS, "called, size={:#010x}, unk_param2={:#04x}, unk_param3={:#04x}", size,
+              unk_param2, unk_param3);
 }
 
 void Module::Interface::UnregisterTask(Kernel::HLERequestContext& ctx) {
@@ -149,13 +149,13 @@ void Module::Interface::UnregisterTask(Kernel::HLERequestContext& ctx) {
     const u8 unk_param2 = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
 
-    LOG_DEBUG(Service_BOSS, "called, size={:#010X}, unk_param2={:#04X}", size, unk_param2);
-
     const auto result = online_service.UnregisterTask(size, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(result);
     rb.PushMappedBuffer(buffer);
+
+    LOG_DEBUG(Service_BOSS, "called, size={:#010x}, unk_param2={:#04x}", size, unk_param2);
 }
 
 void Module::Interface::ReconfigureTask(Kernel::HLERequestContext& ctx) {
@@ -168,18 +168,18 @@ void Module::Interface::ReconfigureTask(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}", size, unk_param2);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}, unk_param2={:#04x}", size, unk_param2);
 }
 
 void Module::Interface::GetTaskIdList(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
 
-    LOG_DEBUG(Service_BOSS, "called");
-
     online_service.GetTaskIdList();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
+
+    LOG_DEBUG(Service_BOSS, "called");
 }
 
 void Module::Interface::GetStepIdList(Kernel::HLERequestContext& ctx) {
@@ -191,7 +191,7 @@ void Module::Interface::GetStepIdList(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}", size);
 }
 
 void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
@@ -202,11 +202,6 @@ void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    LOG_DEBUG(Service_BOSS,
-              "filter={:#010X}, max_entries={:#010X}, "
-              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-              filter, max_entries, word_index_start, start_ns_data_id);
-
     const u16 entries_count = online_service.GetNsDataIdList(filter, max_entries, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
@@ -214,6 +209,11 @@ void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
     rb.Push<u16>(entries_count); /// Actual number of output entries
     rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
+
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010x}, max_entries={:#010x}, "
+              "word_index_start={:#06x}, start_ns_data_id={:#010x}",
+              filter, max_entries, word_index_start, start_ns_data_id);
 }
 
 void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
@@ -224,11 +224,6 @@ void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    LOG_DEBUG(Service_BOSS,
-              "filter={:#010X}, max_entries={:#010X}, "
-              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-              filter, max_entries, word_index_start, start_ns_data_id);
-
     const u16 entries_count = online_service.GetNsDataIdList(filter, max_entries, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
@@ -236,6 +231,11 @@ void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
     rb.Push<u16>(entries_count); /// Actual number of output entries
     rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
+
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010x}, max_entries={:#010x}, "
+              "word_index_start={:#06x}, start_ns_data_id={:#010x}",
+              filter, max_entries, word_index_start, start_ns_data_id);
 }
 
 void Module::Interface::GetNsDataIdList2(Kernel::HLERequestContext& ctx) {
@@ -246,11 +246,6 @@ void Module::Interface::GetNsDataIdList2(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    LOG_DEBUG(Service_BOSS,
-              "filter={:#010X}, max_entries={:#010X}, "
-              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-              filter, max_entries, word_index_start, start_ns_data_id);
-
     const u16 entries_count = online_service.GetNsDataIdList(filter, max_entries, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
@@ -258,6 +253,11 @@ void Module::Interface::GetNsDataIdList2(Kernel::HLERequestContext& ctx) {
     rb.Push<u16>(entries_count); /// Actual number of output entries
     rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
+
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010x}, max_entries={:#010x}, "
+              "word_index_start={:#06x}, start_ns_data_id={:#010x}",
+              filter, max_entries, word_index_start, start_ns_data_id);
 }
 
 void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
@@ -268,11 +268,6 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    LOG_DEBUG(Service_BOSS,
-              "filter={:#010X}, max_entries={:#010X}, "
-              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-              filter, max_entries, word_index_start, start_ns_data_id);
-
     const u16 entries_count = online_service.GetNsDataIdList(filter, max_entries, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
@@ -280,6 +275,11 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
     rb.Push<u16>(entries_count); /// Actual number of output entries
     rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
+
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010x}, max_entries={:#010x}, "
+              "word_index_start={:#06x}, start_ns_data_id={:#010x}",
+              filter, max_entries, word_index_start, start_ns_data_id);
 }
 
 void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
@@ -288,13 +288,13 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    LOG_DEBUG(Service_BOSS, "property_id={:#06X}, size={:#010X}", property_id, size);
-
     const auto result = online_service.SendProperty(property_id, size, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(result);
     rb.PushMappedBuffer(buffer);
+
+    LOG_DEBUG(Service_BOSS, "property_id={:#06x}, size={:#010x}", property_id, size);
 }
 
 void Module::Interface::SendPropertyHandle(Kernel::HLERequestContext& ctx) {
@@ -305,7 +305,7 @@ void Module::Interface::SendPropertyHandle(Kernel::HLERequestContext& ctx) {
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) property_id={:#06X}", property_id);
+    LOG_WARNING(Service_BOSS, "(STUBBED) property_id={:#06x}", property_id);
 }
 
 void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
@@ -314,14 +314,14 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    LOG_DEBUG(Service_BOSS, "property_id={:#06X}, size={:#010X}", property_id, size);
-
     const auto result = online_service.ReceiveProperty(property_id, size, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(result);
     rb.Push<u32>(size);
     rb.PushMappedBuffer(buffer);
+
+    LOG_DEBUG(Service_BOSS, "property_id={:#06x}, size={:#010x}", property_id, size);
 }
 
 void Module::Interface::UpdateTaskInterval(Kernel::HLERequestContext& ctx) {
@@ -334,7 +334,7 @@ void Module::Interface::UpdateTaskInterval(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#06X}", size, unk_param2);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}, unk_param2={:#06x}", size, unk_param2);
 }
 
 void Module::Interface::UpdateTaskCount(Kernel::HLERequestContext& ctx) {
@@ -343,18 +343,14 @@ void Module::Interface::UpdateTaskCount(Kernel::HLERequestContext& ctx) {
     const u32 unk_param2 = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    if (size > 0x8) {
-        LOG_WARNING(Service_BOSS, "TaskId cannot be longer than 8");
-    } else {
-        std::string task_id(size, 0);
-        buffer.Read(task_id.data(), 0, size);
-    }
+    std::string task_id(size, 0);
+    buffer.Read(task_id.data(), 0, size);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#010X}", size, unk_param2);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}, unk_param2={:#010x}", size, unk_param2);
 }
 
 void Module::Interface::GetTaskInterval(Kernel::HLERequestContext& ctx) {
@@ -367,7 +363,7 @@ void Module::Interface::GetTaskInterval(Kernel::HLERequestContext& ctx) {
     rb.Push<u32>(0); // stub 0 ( 32bit value)
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}", size);
 }
 
 void Module::Interface::GetTaskCount(Kernel::HLERequestContext& ctx) {
@@ -375,19 +371,15 @@ void Module::Interface::GetTaskCount(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    if (size > 0x8) {
-        LOG_WARNING(Service_BOSS, "TaskId cannot be longer than 8");
-    } else {
-        std::string task_id(size, 0);
-        buffer.Read(task_id.data(), 0, size);
-    }
+    std::string task_id(size, 0);
+    buffer.Read(task_id.data(), 0, size);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(RESULT_SUCCESS);
     rb.Push<u32>(0); // stub 0 ( 32bit value)
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}", size);
 }
 
 void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
@@ -404,7 +396,7 @@ void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
     rb.Push<u8>(task_service_status);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}", size);
 }
 
 void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
@@ -416,7 +408,7 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}", size);
 }
 
 void Module::Interface::StartTaskImmediate(Kernel::HLERequestContext& ctx) {
@@ -428,7 +420,7 @@ void Module::Interface::StartTaskImmediate(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}", size);
 }
 
 void Module::Interface::CancelTask(Kernel::HLERequestContext& ctx) {
@@ -440,7 +432,7 @@ void Module::Interface::CancelTask(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}", size);
 }
 
 void Module::Interface::GetTaskFinishHandle(Kernel::HLERequestContext& ctx) {
@@ -466,7 +458,7 @@ void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
     rb.Push<u8>(0);  /// unknown, usually 0
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, state={:#06X}", size, state);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}, state={:#06x}", size, state);
 }
 
 void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
@@ -481,7 +473,7 @@ void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
     rb.Push<u8>(0);  // stub 0 (8 bit value)
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}", size);
 }
 
 void Module::Interface::GetTaskCommErrorCode(Kernel::HLERequestContext& ctx) {
@@ -496,7 +488,7 @@ void Module::Interface::GetTaskCommErrorCode(Kernel::HLERequestContext& ctx) {
     rb.Push<u8>(0);  // stub 0 (8 bit value)
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}", size);
 }
 
 void Module::Interface::GetTaskStatus(Kernel::HLERequestContext& ctx) {
@@ -511,7 +503,7 @@ void Module::Interface::GetTaskStatus(Kernel::HLERequestContext& ctx) {
     rb.Push<u8>(0); // stub 0 (8 bit value)
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}",
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}, unk_param2={:#04x}, unk_param3={:#04x}",
                 size, unk_param2, unk_param3);
 }
 
@@ -526,7 +518,7 @@ void Module::Interface::GetTaskError(Kernel::HLERequestContext& ctx) {
     rb.Push<u8>(0); // stub 0 (8 bit value)
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}", size, unk_param2);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}, unk_param2={:#04x}", size, unk_param2);
 }
 
 void Module::Interface::GetTaskInfo(Kernel::HLERequestContext& ctx) {
@@ -539,7 +531,7 @@ void Module::Interface::GetTaskInfo(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}", size, unk_param2);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}, unk_param2={:#04x}", size, unk_param2);
 }
 
 void Module::Interface::DeleteNsData(Kernel::HLERequestContext& ctx) {
@@ -549,7 +541,7 @@ void Module::Interface::DeleteNsData(Kernel::HLERequestContext& ctx) {
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}", ns_data_id);
+    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010x}", ns_data_id);
 }
 
 void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
@@ -563,7 +555,7 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}, type={:#04X}, size={:#010X}",
+    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010x}, type={:#04x}, size={:#010x}",
                 ns_data_id, type, size);
 }
 
@@ -580,7 +572,7 @@ void Module::Interface::ReadNsData(Kernel::HLERequestContext& ctx) {
     rb.Push<u32>(0);    /// unknown
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}, offset={:#018X}, size={:#010X}",
+    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010x}, offset={:#018x}, size={:#010x}",
                 ns_data_id, offset, size);
 }
 
@@ -592,7 +584,7 @@ void Module::Interface::SetNsDataAdditionalInfo(Kernel::HLERequestContext& ctx) 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010X}, unk_param2={:#010X}", unk_param1,
+    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010x}, unk_param2={:#010x}", unk_param1,
                 unk_param2);
 }
 
@@ -604,7 +596,7 @@ void Module::Interface::GetNsDataAdditionalInfo(Kernel::HLERequestContext& ctx) 
     rb.Push(RESULT_SUCCESS);
     rb.Push<u32>(0); // stub 0 (32bit value)
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010X}", unk_param1);
+    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010x}", unk_param1);
 }
 
 void Module::Interface::SetNsDataNewFlag(Kernel::HLERequestContext& ctx) {
@@ -615,7 +607,7 @@ void Module::Interface::SetNsDataNewFlag(Kernel::HLERequestContext& ctx) {
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010X}, ns_data_new_flag={:#04X}", unk_param1,
+    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010x}, ns_data_new_flag={:#04x}", unk_param1,
                 ns_data_new_flag);
 }
 
@@ -627,7 +619,7 @@ void Module::Interface::GetNsDataNewFlag(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.Push<u8>(ns_data_new_flag);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010X}, ns_data_new_flag={:#04X}", unk_param1,
+    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010x}, ns_data_new_flag={:#04x}", unk_param1,
                 ns_data_new_flag);
 }
 
@@ -640,7 +632,7 @@ void Module::Interface::GetNsDataLastUpdate(Kernel::HLERequestContext& ctx) {
     rb.Push<u32>(0); // stub 0 (32bit value)
     rb.Push<u32>(0); // stub 0 (32bit value)
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010X}", unk_param1);
+    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010x}", unk_param1);
 }
 
 void Module::Interface::GetErrorCode(Kernel::HLERequestContext& ctx) {
@@ -651,7 +643,7 @@ void Module::Interface::GetErrorCode(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.Push<u32>(0); /// output value
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) input={:#010X}", input);
+    LOG_WARNING(Service_BOSS, "(STUBBED) input={:#010x}", input);
 }
 
 void Module::Interface::RegisterStorageEntry(Kernel::HLERequestContext& ctx) {
@@ -666,8 +658,8 @@ void Module::Interface::RegisterStorageEntry(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
 
     LOG_WARNING(Service_BOSS,
-                "(STUBBED)  unk_param1={:#010X}, unk_param2={:#010X}, unk_param3={:#010X}, "
-                "unk_param4={:#010X}, unk_param5={:#04X}",
+                "(STUBBED)  unk_param1={:#010x}, unk_param2={:#010x}, unk_param3={:#010x}, "
+                "unk_param4={:#010x}, unk_param5={:#04x}",
                 unk_param1, unk_param2, unk_param3, unk_param4, unk_param5);
 }
 
@@ -693,8 +685,8 @@ void Module::Interface::SetStorageOption(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
 
     LOG_WARNING(Service_BOSS,
-                "(STUBBED)  unk_param1={:#04X}, unk_param2={:#010X}, "
-                "unk_param3={:#08X}, unk_param4={:#08X}",
+                "(STUBBED)  unk_param1={:#04x}, unk_param2={:#010x}, "
+                "unk_param3={:#08x}, unk_param4={:#08x}",
                 unk_param1, unk_param2, unk_param3, unk_param4);
 }
 
@@ -720,7 +712,7 @@ void Module::Interface::StartBgImmediate(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}", size);
 }
 
 void Module::Interface::GetTaskProperty0(Kernel::HLERequestContext& ctx) {
@@ -733,7 +725,7 @@ void Module::Interface::GetTaskProperty0(Kernel::HLERequestContext& ctx) {
     rb.Push<u8>(0); /// current state of PropertyID 0x0 stub 0 (8bit value)
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}", size);
 }
 
 void Module::Interface::RegisterImmediateTask(Kernel::HLERequestContext& ctx) {
@@ -747,7 +739,7 @@ void Module::Interface::RegisterImmediateTask(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}",
+    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010x}, unk_param2={:#04x}, unk_param3={:#04x}",
                 size, unk_param2, unk_param3);
 }
 
@@ -763,7 +755,7 @@ void Module::Interface::SetTaskQuery(Kernel::HLERequestContext& ctx) {
     rb.PushMappedBuffer(buffer1);
     rb.PushMappedBuffer(buffer2);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) buffer1_size={:#010X}, buffer2_size={:#010X}",
+    LOG_WARNING(Service_BOSS, "(STUBBED) buffer1_size={:#010x}, buffer2_size={:#010x}",
                 buffer1_size, buffer2_size);
 }
 
@@ -779,7 +771,7 @@ void Module::Interface::GetTaskQuery(Kernel::HLERequestContext& ctx) {
     rb.PushMappedBuffer(buffer1);
     rb.PushMappedBuffer(buffer2);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) buffer1_size={:#010X}, buffer2_size={:#010X}",
+    LOG_WARNING(Service_BOSS, "(STUBBED) buffer1_size={:#010x}, buffer2_size={:#010x}",
                 buffer1_size, buffer2_size);
 }
 
@@ -791,7 +783,7 @@ void Module::Interface::InitializeSessionPrivileged(Kernel::HLERequestContext& c
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) programID={:#018X}", programID);
+    LOG_WARNING(Service_BOSS, "(STUBBED) programID={:#018x}", programID);
 }
 
 void Module::Interface::GetAppNewFlag(Kernel::HLERequestContext& ctx) {
@@ -802,7 +794,7 @@ void Module::Interface::GetAppNewFlag(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.Push<u8>(0); // 0 = nothing new, 1 = new content
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) programID={:#018X}", programID);
+    LOG_WARNING(Service_BOSS, "(STUBBED) programID={:#018x}", programID);
 }
 
 void Module::Interface::GetNsDataIdListPrivileged(Kernel::HLERequestContext& ctx) {
@@ -821,8 +813,8 @@ void Module::Interface::GetNsDataIdListPrivileged(Kernel::HLERequestContext& ctx
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS,
-                "(STUBBED) programID={:#018X}, filter={:#010X}, max_entries={:#010X}, "
-                "word_index_start={:#06X}, start_ns_data_id={:#010X}",
+                "(STUBBED) programID={:#018x}, filter={:#010x}, max_entries={:#010x}, "
+                "word_index_start={:#06x}, start_ns_data_id={:#010x}",
                 programID, filter, max_entries, word_index_start, start_ns_data_id);
 }
 
@@ -842,8 +834,8 @@ void Module::Interface::GetNsDataIdListPrivileged1(Kernel::HLERequestContext& ct
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS,
-                "(STUBBED) programID={:#018X}, filter={:#010X}, max_entries={:#010X}, "
-                "word_index_start={:#06X}, start_ns_data_id={:#010X}",
+                "(STUBBED) programID={:#018x}, filter={:#010x}, max_entries={:#010x}, "
+                "word_index_start={:#06x}, start_ns_data_id={:#010x}",
                 programID, filter, max_entries, word_index_start, start_ns_data_id);
 }
 
@@ -857,7 +849,7 @@ void Module::Interface::SendPropertyPrivileged(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) property_id={:#06X}, size={:#010X}", property_id, size);
+    LOG_WARNING(Service_BOSS, "(STUBBED) property_id={:#06x}, size={:#010x}", property_id, size);
 }
 
 void Module::Interface::DeleteNsDataPrivileged(Kernel::HLERequestContext& ctx) {
@@ -868,7 +860,7 @@ void Module::Interface::DeleteNsDataPrivileged(Kernel::HLERequestContext& ctx) {
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) programID={:#018X}, ns_data_id={:#010X}", programID,
+    LOG_WARNING(Service_BOSS, "(STUBBED) programID={:#018x}, ns_data_id={:#010x}", programID,
                 ns_data_id);
 }
 
@@ -885,7 +877,7 @@ void Module::Interface::GetNsDataHeaderInfoPrivileged(Kernel::HLERequestContext&
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS,
-                "(STUBBED) programID={:#018X} ns_data_id={:#010X}, type={:#04X}, size={:#010X}",
+                "(STUBBED) programID={:#018x} ns_data_id={:#010x}, type={:#04x}, size={:#010x}",
                 programID, ns_data_id, type, size);
 }
 
@@ -904,7 +896,7 @@ void Module::Interface::ReadNsDataPrivileged(Kernel::HLERequestContext& ctx) {
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS,
-                "(STUBBED) programID={:#018X}, ns_data_id={:#010X}, offset={:#018X}, size={:#010X}",
+                "(STUBBED) programID={:#018x}, ns_data_id={:#010x}, offset={:#018x}, size={:#010x}",
                 programID, ns_data_id, offset, size);
 }
 
@@ -919,7 +911,7 @@ void Module::Interface::SetNsDataNewFlagPrivileged(Kernel::HLERequestContext& ct
 
     LOG_WARNING(
         Service_BOSS,
-        "(STUBBED) programID={:#018X}, unk_param1={:#010X}, ns_data_new_flag_privileged={:#04X}",
+        "(STUBBED) programID={:#018x}, unk_param1={:#010x}, ns_data_new_flag_privileged={:#04x}",
         programID, unk_param1, ns_data_new_flag_privileged);
 }
 
@@ -934,7 +926,7 @@ void Module::Interface::GetNsDataNewFlagPrivileged(Kernel::HLERequestContext& ct
 
     LOG_WARNING(
         Service_BOSS,
-        "(STUBBED) programID={:#018X}, unk_param1={:#010X}, ns_data_new_flag_privileged={:#04X}",
+        "(STUBBED) programID={:#018x}, unk_param1={:#010x}, ns_data_new_flag_privileged={:#04x}",
         programID, unk_param1, ns_data_new_flag_privileged);
 }
 

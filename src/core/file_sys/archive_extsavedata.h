@@ -62,6 +62,7 @@ private:
         ar& boost::serialization::base_object<ArchiveFactory>(*this);
         ar& shared;
         ar& mount_point;
+        ar& boss;
     }
     friend class boost::serialization::access;
 };

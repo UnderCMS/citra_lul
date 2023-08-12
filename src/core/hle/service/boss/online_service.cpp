@@ -80,17 +80,17 @@ ResultCode OnlineService::InitializeSession(u64 init_program_id) {
 
     auto boss_sv = std::move(boss_sv_result).Unwrap();
     auto boss_ss = std::move(boss_ss_result).Unwrap();
-    if (!(boss_sv->GetSize() > boss_save_header_size &&
-          ((boss_sv->GetSize() - boss_save_header_size) % boss_s_entry_size) == 0 &&
+    if (!(boss_sv->GetSize() > BOSS_SAVE_HEADER_SIZE &&
+          ((boss_sv->GetSize() - BOSS_SAVE_HEADER_SIZE) % BOSS_S_ENTRY_SIZE) == 0 &&
           boss_sv->GetSize() == boss_ss->GetSize())) {
         LOG_ERROR(Service_BOSS, "BOSS database has incorrect size.");
         return RESULT_SUCCESS;
     }
 
     // Read the files if they already exist
-    const u64 num_entries = (boss_sv->GetSize() - boss_save_header_size) / boss_s_entry_size;
+    const u64 num_entries = (boss_sv->GetSize() - BOSS_SAVE_HEADER_SIZE) / BOSS_S_ENTRY_SIZE;
     for (u64 i = 0; i < num_entries; i++) {
-        const u64 entry_offset = i * boss_s_entry_size + boss_save_header_size;
+        const u64 entry_offset = i * BOSS_S_ENTRY_SIZE + BOSS_SAVE_HEADER_SIZE;
 
         BossSVData sv_data;
         boss_sv->Read(entry_offset, sizeof(BossSVData), reinterpret_cast<u8*>(&sv_data));
@@ -102,9 +102,9 @@ ResultCode OnlineService::InitializeSession(u64 init_program_id) {
             continue;
         }
 
-        std::vector<u8> url_vector(url_size);
-        std::memcpy(url_vector.data(), ss_data.url.data(), url_size);
-        current_props.properties[PropertyID::URL] = url_vector;
+        std::vector<u8> url_vector(URL_SIZE);
+        std::memcpy(url_vector.data(), ss_data.url.data(), URL_SIZE);
+        current_props.properties[PropertyID::Url] = url_vector;
 
         const auto task_id = std::string(sv_data.task_id.data());
         if (task_id_list.contains(task_id)) {
@@ -132,7 +132,7 @@ void OnlineService::RegisterTask(const u32 size, Kernel::MappedBuffer& buffer) {
 }
 
 ResultCode OnlineService::UnregisterTask(const u32 size, Kernel::MappedBuffer& buffer) {
-    if (size > task_id_size) {
+    if (size > TASK_ID_SIZE) {
         LOG_WARNING(Service_BOSS, "TaskId cannot be longer than 8");
         return ResultCode(1);
     }
@@ -148,25 +148,25 @@ ResultCode OnlineService::UnregisterTask(const u32 size, Kernel::MappedBuffer& b
 }
 
 void OnlineService::GetTaskIdList() {
-    current_props.properties[PropertyID::TOTALTASKS] = static_cast<u16>(task_id_list.size());
+    current_props.properties[PropertyID::TotalTasks] = static_cast<u16>(task_id_list.size());
 
-    const auto num_task_ids = taskidlist_size / task_id_size;
-    std::vector<std::array<u8, task_id_size>> task_ids(num_task_ids);
+    const auto num_task_ids = TASKIDLIST_SIZE / TASK_ID_SIZE;
+    std::vector<std::array<u8, TASK_ID_SIZE>> task_ids(num_task_ids);
 
     u16 num_returned_task_ids = 0;
     for (const auto& iter : task_id_list) {
         const std::string current_task_id = iter.first;
-        if (current_task_id.size() > task_id_size || num_returned_task_ids >= num_task_ids) {
+        if (current_task_id.size() > TASK_ID_SIZE || num_returned_task_ids >= num_task_ids) {
             LOG_WARNING(Service_BOSS, "TaskId {} too long or too many TaskIds", current_task_id);
             continue;
         }
-        std::memcpy(task_ids[num_returned_task_ids++].data(), current_task_id.data(), task_id_size);
+        std::memcpy(task_ids[num_returned_task_ids++].data(), current_task_id.data(), TASK_ID_SIZE);
     }
 
     auto* task_list_prop =
-        std::get_if<std::vector<u8>>(&current_props.properties[PropertyID::TASKIDLIST]);
-    if (task_list_prop && task_list_prop->size() == taskidlist_size) {
-        std::memcpy(task_list_prop->data(), task_ids.data(), taskidlist_size);
+        std::get_if<std::vector<u8>>(&current_props.properties[PropertyID::TaskIdList]);
+    if (task_list_prop && task_list_prop->size() == TASKIDLIST_SIZE) {
+        std::memcpy(task_list_prop->data(), task_ids.data(), TASKIDLIST_SIZE);
     }
 }
 
@@ -240,18 +240,18 @@ std::vector<NsDataEntry> OnlineService::GetNsDataEntries() {
 
         auto file = std::move(file_result).Unwrap();
         file->Read(0, boss_header_length, reinterpret_cast<u8*>(&entry.header));
-        if (entry.header.header_length != boss_extdata_header_length) {
+        if (entry.header.header_length != BOSS_EXTDATA_HEADER_LENGTH) {
             LOG_WARNING(
                 Service_BOSS,
-                "Incorrect header length or non-spotpass file; expected {:#010X}, found {:#010X}",
-                boss_extdata_header_length, entry.header.header_length);
+                "Incorrect header length or non-spotpass file; expected {:#010x}, found {:#010x}",
+                BOSS_EXTDATA_HEADER_LENGTH, entry.header.header_length);
             continue;
         }
 
         if (entry.header.program_id != program_id) {
             LOG_WARNING(Service_BOSS,
                         "Mismatched program ID in spotpass data. Was expecting "
-                        "{:#018X}, found {:#018X}",
+                        "{:#018x}, found {:#018x}",
                         program_id, static_cast<u64>(entry.header.program_id));
             continue;
         }
@@ -259,7 +259,7 @@ std::vector<NsDataEntry> OnlineService::GetNsDataEntries() {
         // Check the payload size is correct, excluding header
         if (entry.header.payload_size != (current_file.file_size - boss_header_length)) {
             LOG_WARNING(Service_BOSS,
-                        "Mismatched file size, was expecting {:#010X}, found {:#010X}",
+                        "Mismatched file size, was expecting {:#010x}, found {:#010x}",
                         static_cast<u32>(entry.header.payload_size),
                         current_file.file_size - boss_header_length);
             continue;
@@ -303,10 +303,13 @@ template <class... Ts>
 struct overload : Ts... {
     using Ts::operator()...;
 };
+template <class... Ts>
+overload(Ts...) -> overload<Ts...>;
+
 ResultCode OnlineService::SendProperty(const u16 id, const u32 size, Kernel::MappedBuffer& buffer) {
     const auto property_id = static_cast<PropertyID>(id);
     if (!current_props.properties.contains(property_id)) {
-        LOG_ERROR(Service_BOSS, "Unknown property with id {:#06X}", property_id);
+        LOG_ERROR(Service_BOSS, "Unknown property with id {:#06x}", property_id);
         return ResultCode(1);
     }
 
@@ -314,7 +317,7 @@ ResultCode OnlineService::SendProperty(const u16 id, const u32 size, Kernel::Map
     auto read_pod = [&]<typename T>(T& old_prop) {
         static_assert(std::is_trivial<T>::value, "Only trivial types are allowed for read_pod");
         if (size != sizeof(old_prop)) {
-            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
+            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06x}, was expecting {}, got {}",
                       property_id, sizeof(old_prop), size);
         }
         T cur_prop = 0;
@@ -324,7 +327,7 @@ ResultCode OnlineService::SendProperty(const u16 id, const u32 size, Kernel::Map
 
     auto read_vector = [&]<typename T>(std::vector<T>& old_prop) {
         if (size != old_prop.size()) {
-            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
+            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06x}, was expecting {}, got {}",
                       property_id, old_prop.size(), size);
         }
         std::vector<T> cur_prop(size);
@@ -346,14 +349,14 @@ ResultCode OnlineService::ReceiveProperty(const u16 id, const u32 size,
                                           Kernel::MappedBuffer& buffer) {
     const auto property_id = static_cast<PropertyID>(id);
     if (!current_props.properties.contains(property_id)) {
-        LOG_ERROR(Service_BOSS, "Unknown property with id {:#06X}", property_id);
+        LOG_ERROR(Service_BOSS, "Unknown property with id {:#06x}", property_id);
         return ResultCode(1);
     }
 
     auto write_pod = [&]<typename T>(T& cur_prop) {
         static_assert(std::is_trivial<T>::value, "Only trivial types are allowed for write_pod");
         if (size != sizeof(cur_prop)) {
-            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
+            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06x}, was expecting {}, got {}",
                       property_id, sizeof(cur_prop), size);
         }
         buffer.Write(&cur_prop, 0, size);
@@ -361,7 +364,7 @@ ResultCode OnlineService::ReceiveProperty(const u16 id, const u32 size,
 
     auto write_vector = [&]<typename T>(std::vector<T>& cur_prop) {
         if (size != cur_prop.size()) {
-            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
+            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06x}, was expecting {}, got {}",
                       property_id, cur_prop.size(), size);
         }
         buffer.Write(cur_prop.data(), 0, size);
