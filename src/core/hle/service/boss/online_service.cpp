@@ -299,6 +299,10 @@ u16 OnlineService::GetNsDataIdList(const u32 filter, const u32 max_entries,
     return static_cast<u16>(output_entries.size());
 }
 
+template <class... Ts>
+struct overload : Ts... {
+    using Ts::operator()...;
+};
 ResultCode OnlineService::SendProperty(const u16 id, const u32 size, Kernel::MappedBuffer& buffer) {
     const auto property_id = static_cast<PropertyID>(id);
     if (!current_props.properties.contains(property_id)) {
@@ -307,20 +311,33 @@ ResultCode OnlineService::SendProperty(const u16 id, const u32 size, Kernel::Map
     }
 
     auto& prop = current_props.properties[property_id];
-    std::visit(
-        [&](auto&& arg) {
-            using T = std::decay_t<decltype(arg)>;
-            if (size != sizeof(T)) {
-                LOG_ERROR(Service_BOSS,
-                          "Unexpected size of property {:#06X}, was expecting {}, got {}",
-                          property_id, sizeof(T), size);
-            }
+    auto read_pod = [&]<typename T>(T& old_prop) {
+        static_assert(std::is_trivial<T>::value, "Only trivial types are allowed for read_pod");
+        if (size != sizeof(old_prop)) {
+            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
+                      property_id, sizeof(old_prop), size);
+        }
+        T cur_prop = 0;
+        buffer.Read(&cur_prop, 0, size);
+        prop = cur_prop;
+    };
 
-            T current_prop;
-            buffer.Read(&current_prop, 0, size);
-            prop = current_prop;
-        },
-        prop);
+    auto read_vector = [&]<typename T>(std::vector<T>& old_prop) {
+        if (size != old_prop.size()) {
+            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
+                      property_id, old_prop.size(), size);
+        }
+        std::vector<T> cur_prop(size);
+        buffer.Read(cur_prop.data(), 0, size);
+        prop = cur_prop;
+    };
+
+    std::visit(overload{[&](u8& cur_prop) { read_pod(cur_prop); },
+                        [&](u16& cur_prop) { read_pod(cur_prop); },
+                        [&](u32& cur_prop) { read_pod(cur_prop); },
+                        [&](std::vector<u8>& cur_prop) { read_vector(cur_prop); },
+                        [&](std::vector<u32>& cur_prop) { read_vector(cur_prop); }},
+               prop);
 
     return RESULT_SUCCESS;
 }
@@ -333,19 +350,30 @@ ResultCode OnlineService::ReceiveProperty(const u16 id, const u32 size,
         return ResultCode(1);
     }
 
-    auto& prop = current_props.properties[property_id];
-    std::visit(
-        [&](auto&& arg) {
-            using T = std::decay_t<decltype(arg)>;
-            if (size != sizeof(T)) {
-                LOG_ERROR(Service_BOSS,
-                          "Unexpected size of property {:#06X}, was expecting {}, got {}",
-                          property_id, sizeof(T), size);
-            }
+    auto write_pod = [&]<typename T>(T& cur_prop) {
+        static_assert(std::is_trivial<T>::value, "Only trivial types are allowed for write_pod");
+        if (size != sizeof(cur_prop)) {
+            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
+                      property_id, sizeof(cur_prop), size);
+        }
+        buffer.Write(&cur_prop, 0, size);
+    };
 
-            buffer.Write(&prop, 0, size);
-        },
-        prop);
+    auto write_vector = [&]<typename T>(std::vector<T>& cur_prop) {
+        if (size != cur_prop.size()) {
+            LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
+                      property_id, cur_prop.size(), size);
+        }
+        buffer.Write(cur_prop.data(), 0, size);
+    };
+
+    auto& prop = current_props.properties[property_id];
+    std::visit(overload{[&](u8& cur_prop) { write_pod(cur_prop); },
+                        [&](u16& cur_prop) { write_pod(cur_prop); },
+                        [&](u32& cur_prop) { write_pod(cur_prop); },
+                        [&](std::vector<u8>& cur_prop) { write_vector(cur_prop); },
+                        [&](std::vector<u32>& cur_prop) { write_vector(cur_prop); }},
+               prop);
 
     return RESULT_SUCCESS;
 }
