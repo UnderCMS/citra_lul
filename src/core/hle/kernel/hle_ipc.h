@@ -302,7 +302,7 @@ public:
                     result_function,
                     std::move(std::async(std::launch::async, [this, async_section] {
                         s64 sleepfor = async_section(*this);
-                        this->thread->WakeAfterDelayTS(sleepfor);
+                        this->thread->WakeAfterDelay(sleepfor);
                     }))));
 
         } else {

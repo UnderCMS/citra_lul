@@ -244,22 +244,15 @@ void ThreadManager::ThreadWakeupCallback(u64 thread_id, s64 cycles_late) {
     thread->ResumeFromWait();
 }
 
-void Thread::WakeAfterDelay(s64 nanoseconds) {
+void Thread::WakeAfterDelay(s64 nanoseconds, bool thread_safe) {
     // Don't schedule a wakeup if the thread wants to wait forever
     if (nanoseconds == -1)
         return;
+    size_t core = thread_safe ? core_id : std::numeric_limits<std::size_t>::max();
 
     thread_manager.kernel.timing.ScheduleEvent(nsToCycles(nanoseconds),
-                                               thread_manager.ThreadWakeupEventType, thread_id);
-}
-
-void Thread::WakeAfterDelayTS(s64 nanoseconds) {
-    // Don't schedule a wakeup if the thread wants to wait forever
-    if (nanoseconds == -1)
-        return;
-
-    thread_manager.kernel.timing.ScheduleEventTS(
-        nsToCycles(nanoseconds), thread_manager.ThreadWakeupEventType, thread_id, core_id);
+                                               thread_manager.ThreadWakeupEventType, thread_id,
+                                               core, thread_safe);
 }
 
 void Thread::ResumeFromWait() {
