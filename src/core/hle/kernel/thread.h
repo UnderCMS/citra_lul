@@ -238,7 +238,8 @@ public:
     /**
      * Schedules an event to wake up the specified thread after the specified delay
      * @param nanoseconds The time this thread will be allowed to sleep for
-     * @param thread_safe Set to true if called from a different thread than the emulator thread, such as coroutines.
+     * @param thread_safe Set to true if called from a different thread than the emulator thread,
+     * such as coroutines.
      */
     void WakeAfterDelay(s64 nanoseconds, bool thread_safe = false);
 
