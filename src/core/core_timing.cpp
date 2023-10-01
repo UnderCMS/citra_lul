@@ -47,7 +47,7 @@ TimingEventType* Timing::RegisterEvent(const std::string& name, TimedCallback ca
 }
 
 void Timing::ScheduleEvent(s64 cycles_into_future, const TimingEventType* event_type,
-                           std::uintptr_t user_data, std::size_t core_id, bool thread_safe) {
+                           std::uintptr_t user_data, std::size_t core_id, bool thread_safe_mode) {
     if (event_queue_locked) {
         return;
     }
@@ -61,8 +61,8 @@ void Timing::ScheduleEvent(s64 cycles_into_future, const TimingEventType* event_
         timer = timers.at(core_id).get();
     }
 
-    if (thread_safe) {
-        // Events scheduled with in thread safe mode come after blocking operations with
+    if (thread_safe_mode) {
+        // Events scheduled in thread safe mode come after blocking operations with
         // unpredictable timings in the host machine, so there is no need to be cycle accurate.
         // To prevent the event from scheduling before the next advance(), we set a minimum time
         // of MAX_SLICE_LENGTH * 2 cycles into the future.
