@@ -301,16 +301,16 @@ public:
                 std::make_shared<AsyncWakeUpCallback<ResultFunctor>>(
                     result_function,
                     std::move(std::async(std::launch::async, [this, async_section] {
-                        s64 sleepfor = async_section(*this);
-                        this->thread->WakeAfterDelay(sleepfor, true);
+                        s64 sleep_for = async_section(*this);
+                        this->thread->WakeAfterDelay(sleep_for, true);
                     }))));
 
         } else {
             s64 sleep_for = async_section(*this);
-            if (sleepfor > 0) {
+            if (sleep_for > 0) {
                 auto parallel_wakeup = std::make_shared<AsyncWakeUpCallback<ResultFunctor>>(
                     result_function, std::move(std::future<void>()));
-                this->SleepClientThread("RunAsync", std::chrono::nanoseconds(sleepfor),
+                this->SleepClientThread("RunAsync", std::chrono::nanoseconds(sleep_for),
                                         parallel_wakeup);
             } else {
                 result_function(*this);
