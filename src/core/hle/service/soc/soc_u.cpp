@@ -1103,8 +1103,8 @@ void SOC_U::RecvFromOther(Kernel::HLERequestContext& ctx) {
         SocketHolder* fd_info;
 #ifdef _WIN32
         bool dont_wait;
-#endif
         bool was_blocking;
+#endif
 
         // Output
         s32 ret{};
@@ -1123,9 +1123,9 @@ void SOC_U::RecvFromOther(Kernel::HLERequestContext& ctx) {
     async_data->output_buff.resize(len);
     async_data->addr_buff.resize(addr_len);
     async_data->fd_info = &fd_info->second;
-    async_data->was_blocking = was_blocking;
 #ifdef _WIN32
     async_data->dont_wait = dont_wait;
+    async_data->was_blocking = was_blocking;
 #endif
 
     ctx.RunAsync(
@@ -1208,8 +1208,8 @@ void SOC_U::RecvFrom(Kernel::HLERequestContext& ctx) {
         SocketHolder* fd_info;
 #ifdef _WIN32
         bool dont_wait;
-#endif
         bool was_blocking;
+#endif
 
         // Output
         s32 ret{};
@@ -1226,9 +1226,9 @@ void SOC_U::RecvFrom(Kernel::HLERequestContext& ctx) {
     async_data->output_buff.resize(len);
     async_data->addr_buff.resize(addr_len);
     async_data->fd_info = &fd_info->second;
-    async_data->was_blocking = was_blocking;
 #ifdef _WIN32
     async_data->dont_wait = dont_wait;
+    async_data->was_blocking = was_blocking;
 #endif
 
     ctx.RunAsync(
