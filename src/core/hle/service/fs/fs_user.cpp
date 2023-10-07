@@ -798,10 +798,10 @@ void FS_USER::AddSeed(Kernel::HLERequestContext& ctx) {
 
 void FS_USER::ObsoletedSetSaveDataSecureValue(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    u64 value = rp.Pop<u64>();
-    u32 secure_value_slot = rp.Pop<u32>();
-    u32 unique_id = rp.Pop<u32>();
-    u8 title_variation = rp.Pop<u8>();
+    const u64 value = rp.Pop<u64>();
+    const u32 secure_value_slot = rp.Pop<u32>();
+    const u32 unique_id = rp.Pop<u32>();
+    const u8 title_variation = rp.Pop<u8>();
 
     // TODO: Generate and Save the Secure Value
 
@@ -817,10 +817,9 @@ void FS_USER::ObsoletedSetSaveDataSecureValue(Kernel::HLERequestContext& ctx) {
 
 void FS_USER::ObsoletedGetSaveDataSecureValue(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-
-    u32 secure_value_slot = rp.Pop<u32>();
-    u32 unique_id = rp.Pop<u32>();
-    u8 title_variation = rp.Pop<u8>();
+    const u32 secure_value_slot = rp.Pop<u32>();
+    const u32 unique_id = rp.Pop<u32>();
+    const u8 title_variation = rp.Pop<u8>();
 
     LOG_WARNING(
         Service_FS,
@@ -839,8 +838,8 @@ void FS_USER::ObsoletedGetSaveDataSecureValue(Kernel::HLERequestContext& ctx) {
 
 void FS_USER::SetThisSaveDataSecureValue(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    u32 secure_value_slot = rp.Pop<u32>();
-    u64 value = rp.Pop<u64>();
+    const u32 secure_value_slot = rp.Pop<u32>();
+    const u64 value = rp.Pop<u64>();
 
     // TODO: Generate and Save the Secure Value
 
@@ -854,8 +853,7 @@ void FS_USER::SetThisSaveDataSecureValue(Kernel::HLERequestContext& ctx) {
 
 void FS_USER::GetThisSaveDataSecureValue(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-
-    u32 secure_value_slot = rp.Pop<u32>();
+    const u32 secure_value_slot = rp.Pop<u32>();
 
     LOG_WARNING(Service_FS, "(STUBBED) called secure_value_slot=0x{:08X}", secure_value_slot);
 
@@ -872,10 +870,10 @@ void FS_USER::GetThisSaveDataSecureValue(Kernel::HLERequestContext& ctx) {
 
 void FS_USER::SetSaveDataSecureValue(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    auto archive_handle = rp.PopRaw<ArchiveHandle>();
-    u32 secure_value_slot = rp.Pop<u32>();
-    u64 value = rp.Pop<u64>();
-    bool flush = rp.Pop<bool>();
+    const auto archive_handle = rp.PopRaw<ArchiveHandle>();
+    const u32 secure_value_slot = rp.Pop<u32>();
+    const u64 value = rp.Pop<u64>();
+    const bool flush = rp.Pop<bool>();
 
     // TODO: Generate and Save the Secure Value
 
@@ -891,9 +889,8 @@ void FS_USER::SetSaveDataSecureValue(Kernel::HLERequestContext& ctx) {
 
 void FS_USER::GetSaveDataSecureValue(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-
-    auto archive_handle = rp.PopRaw<ArchiveHandle>();
-    u32 secure_value_slot = rp.Pop<u32>();
+    const auto archive_handle = rp.PopRaw<ArchiveHandle>();
+    const u32 secure_value_slot = rp.Pop<u32>();
 
     LOG_WARNING(Service_FS, "(STUBBED) called secure_value_slot=0x{:08X} archive_handle=0x{:08X}",
                 secure_value_slot, archive_handle);
