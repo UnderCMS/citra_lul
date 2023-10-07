@@ -1162,6 +1162,8 @@ void SOC_U::RecvFromOther(Kernel::HLERequestContext& ctx) {
             if (async_data->dont_wait && async_data->was_blocking) {
                 SetSocketBlocking(*async_data->fd_info, true);
             }
+#else
+            (void)this;
 #endif
             IPC::RequestBuilder rb(ctx, 0x07, 2, 4);
             rb.Push(RESULT_SUCCESS);
@@ -1257,10 +1259,13 @@ void SOC_U::RecvFrom(Kernel::HLERequestContext& ctx) {
             return 0;
         },
         [this, async_data](Kernel::HLERequestContext& ctx) {
+
 #ifdef _WIN32
             if (async_data->dont_wait && async_data->was_blocking) {
                 SetSocketBlocking(*async_data->fd_info, true);
             }
+#else
+            (void)this;
 #endif
             s32 total_received = async_data->ret;
             if (async_data->ret == SOCKET_ERROR_VALUE) {
