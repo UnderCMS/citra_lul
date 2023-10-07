@@ -6,11 +6,11 @@
 #include <tuple>
 #include <unordered_map>
 #include <boost/algorithm/string/replace.hpp>
-#include <boost/url/src.hpp>
 #include <cryptopp/aes.h>
 #include <cryptopp/modes.h>
 #include "common/archives.h"
 #include "common/assert.h"
+#include "common/scope_exit.h"
 #include "common/string_util.h"
 #include "core/core.h"
 #include "core/file_sys/archive_ncch.h"
@@ -84,31 +84,23 @@ static URLInfo SplitUrl(const std::string& url) {
     if (path_index == std::string::npos) {
         // If no path is specified after the host, set it to "/"
         host = url.substr(prefix_end);
-        const auto port_start = host.find(":");
-        if (port_start != std::string::npos) {
-            std::string port_str = host.substr(port_start + 1);
-            host = host.substr(0, port_start);
-            char* pEnd = NULL;
-            port = std::strtol(port_str.c_str(), &pEnd, 10);
-            if (*pEnd) {
-                port = -1;
-            }
-        }
         path = "/";
     } else {
         host = url.substr(prefix_end, path_index - prefix_end);
-        const auto port_start = host.find(":");
-        if (port_start != std::string::npos) {
-            std::string port_str = host.substr(port_start + 1);
-            host = host.substr(0, port_start);
-            char* pEnd = NULL;
-            port = std::strtol(port_str.c_str(), &pEnd, 10);
-            if (*pEnd) {
-                port = -1;
-            }
-        }
         path = url.substr(path_index);
     }
+
+    const auto port_start = host.find(":");
+    if (port_start != std::string::npos) {
+        std::string port_str = host.substr(port_start + 1);
+        host = host.substr(0, port_start);
+        char* p_end = nullptr;
+        port = std::strtol(port_str.c_str(), &p_end, 10);
+        if (*p_end) {
+            port = -1;
+        }
+    }
+
     if (port == -1) {
         port = is_https ? default_https_port : default_http_port;
     }
@@ -120,17 +112,17 @@ static URLInfo SplitUrl(const std::string& url) {
     };
 }
 
-static ssize_t WriteHeaders(httplib::Stream& strm,
-                            std::span<const Context::RequestHeader> headers) {
-    ssize_t write_len = 0;
-    for (const auto& x : headers) {
-        auto len = strm.write_format("%s: %s\r\n", x.name.c_str(), x.value.c_str());
+static size_t WriteHeaders(httplib::Stream& stream,
+                           std::span<const Context::RequestHeader> headers) {
+    size_t write_len = 0;
+    for (const auto& header : headers) {
+        auto len = stream.write_format("%s: %s\r\n", header.name.c_str(), header.value.c_str());
         if (len < 0) {
             return len;
         }
         write_len += len;
     }
-    auto len = strm.write("\r\n");
+    auto len = stream.write("\r\n");
     if (len < 0) {
         return len;
     }
@@ -141,8 +133,8 @@ static ssize_t WriteHeaders(httplib::Stream& strm,
 static size_t HandleHeaderWrite(std::vector<Context::RequestHeader>& pending_headers,
                                 httplib::Stream& strm, httplib::Headers& httplib_headers) {
     std::vector<Context::RequestHeader> final_headers;
-    std::vector<Context::RequestHeader>::iterator it_p;
-    httplib::Headers::iterator it_h;
+    std::vector<Context::RequestHeader>::iterator it_pending_headers;
+    httplib::Headers::iterator it_httplib_headers;
 
     auto find_pending_header = [&pending_headers](const std::string& str) {
         return std::find_if(pending_headers.begin(), pending_headers.end(),
@@ -151,14 +143,16 @@ static size_t HandleHeaderWrite(std::vector<Context::RequestHeader>& pending_hea
 
     // Watch out for header ordering!!
     // First: Host
-    it_p = find_pending_header("Host");
-    if (it_p != pending_headers.end()) {
-        final_headers.push_back(Context::RequestHeader(it_p->name, it_p->value));
-        pending_headers.erase(it_p);
+    it_pending_headers = find_pending_header("Host");
+    if (it_pending_headers != pending_headers.end()) {
+        final_headers.push_back(
+            Context::RequestHeader(it_pending_headers->name, it_pending_headers->value));
+        pending_headers.erase(it_pending_headers);
     } else {
-        it_h = httplib_headers.find("Host");
-        if (it_h != httplib_headers.end()) {
-            final_headers.push_back(Context::RequestHeader(it_h->first, it_h->second));
+        it_httplib_headers = httplib_headers.find("Host");
+        if (it_httplib_headers != httplib_headers.end()) {
+            final_headers.push_back(
+                Context::RequestHeader(it_httplib_headers->first, it_httplib_headers->second));
         }
     }
 
@@ -169,14 +163,16 @@ static size_t HandleHeaderWrite(std::vector<Context::RequestHeader>& pending_hea
     }
 
     // Fourth: Content-Length
-    it_p = find_pending_header("Content-Length");
-    if (it_p != pending_headers.end()) {
-        final_headers.push_back(Context::RequestHeader(it_p->name, it_p->value));
-        pending_headers.erase(it_p);
+    it_pending_headers = find_pending_header("Content-Length");
+    if (it_pending_headers != pending_headers.end()) {
+        final_headers.push_back(
+            Context::RequestHeader(it_pending_headers->name, it_pending_headers->value));
+        pending_headers.erase(it_pending_headers);
     } else {
-        it_h = httplib_headers.find("Content-Length");
-        if (it_h != httplib_headers.end()) {
-            final_headers.push_back(Context::RequestHeader(it_h->first, it_h->second));
+        it_httplib_headers = httplib_headers.find("Content-Length");
+        if (it_httplib_headers != httplib_headers.end()) {
+            final_headers.push_back(
+                Context::RequestHeader(it_httplib_headers->first, it_httplib_headers->second));
         }
     }
 
@@ -251,55 +247,63 @@ void Context::MakeRequestNonSSL(httplib::Request& request, const URLInfo& url_in
         state = RequestState::ReadyToDownloadContent;
     }
 }
+
 void Context::MakeRequestSSL(httplib::Request& request, const URLInfo& url_info,
                              std::vector<Context::RequestHeader>& pending_headers) {
     httplib::Error error{-1};
     X509* cert = nullptr;
     EVP_PKEY* key = nullptr;
-    {
-        std::unique_ptr<httplib::SSLClient> client;
-        if (uses_default_client_cert) {
-            const unsigned char* tmp_cert_ptr = clcert_data->certificate.data();
-            const unsigned char* tmp_key_ptr = clcert_data->private_key.data();
-            cert = d2i_X509(nullptr, &tmp_cert_ptr, (long)clcert_data->certificate.size());
-            key = d2i_PrivateKey(EVP_PKEY_RSA, nullptr, &tmp_key_ptr,
-                                 (long)clcert_data->private_key.size());
-            client = std::make_unique<httplib::SSLClient>(url_info.host, url_info.port, cert, key);
-        } else if (auto client_cert = ssl_config.client_cert_ctx.lock()) {
-            const unsigned char* tmp_cert_ptr = client_cert->certificate.data();
-            const unsigned char* tmp_key_ptr = client_cert->private_key.data();
-            cert = d2i_X509(nullptr, &tmp_cert_ptr, (long)client_cert->certificate.size());
-            key = d2i_PrivateKey(EVP_PKEY_RSA, nullptr, &tmp_key_ptr,
-                                 (long)client_cert->private_key.size());
-            client = std::make_unique<httplib::SSLClient>(url_info.host, url_info.port, cert, key);
-        } else {
-            client = std::make_unique<httplib::SSLClient>(url_info.host, url_info.port);
+    const unsigned char* cert_data = nullptr;
+    const unsigned char* key_data = nullptr;
+    long cert_size = 0;
+    long key_size = 0;
+    SCOPE_EXIT({
+        if (cert) {
+            X509_free(cert);
         }
-
-        // TODO(B3N30): Check for SSLOptions-Bits and set the verify method accordingly
-        // https://www.3dbrew.org/wiki/SSL_Services#SSLOpt
-        // Hack: Since for now RootCerts are not implemented we set the VerifyMode to None.
-        client->enable_server_certificate_verification(false);
-
-        client->set_header_writer(
-            [&pending_headers](httplib::Stream& strm, httplib::Headers& httplib_headers) {
-                return HandleHeaderWrite(pending_headers, strm, httplib_headers);
-            });
-
-        if (!client->send(request, response, error)) {
-            LOG_ERROR(Service_HTTP, "Request failed: {}: {}", error, httplib::to_string(error));
-            state = RequestState::TimedOut;
-        } else {
-            LOG_DEBUG(Service_HTTP, "Request successful");
-            // TODO(B3N30): Verify this state on HW
-            state = RequestState::ReadyToDownloadContent;
+        if (key) {
+            EVP_PKEY_free(key);
         }
+    });
+
+    if (uses_default_client_cert) {
+        cert_data = clcert_data->certificate.data();
+        key_data = clcert_data->private_key.data();
+        cert_size = static_cast<long>(clcert_data->certificate.size());
+        key_size = static_cast<long>(clcert_data->private_key.size());
+    } else if (auto client_cert = ssl_config.client_cert_ctx.lock()) {
+        cert_data = client_cert->certificate.data();
+        key_data = client_cert->private_key.data();
+        cert_size = static_cast<long>(client_cert->certificate.size());
+        key_size = static_cast<long>(client_cert->private_key.size());
     }
-    if (cert) {
-        X509_free(cert);
+
+    std::unique_ptr<httplib::SSLClient> client;
+    if (cert_data && key_data) {
+        cert = d2i_X509(nullptr, &cert_data, cert_size);
+        key = d2i_PrivateKey(EVP_PKEY_RSA, nullptr, &key_data, key_size);
+        client = std::make_unique<httplib::SSLClient>(url_info.host, url_info.port, cert, key);
+    } else {
+        client = std::make_unique<httplib::SSLClient>(url_info.host, url_info.port);
     }
-    if (key) {
-        EVP_PKEY_free(key);
+
+    // TODO(B3N30): Check for SSLOptions-Bits and set the verify method accordingly
+    // https://www.3dbrew.org/wiki/SSL_Services#SSLOpt
+    // Hack: Since for now RootCerts are not implemented we set the VerifyMode to None.
+    client->enable_server_certificate_verification(false);
+
+    client->set_header_writer(
+        [&pending_headers](httplib::Stream& strm, httplib::Headers& httplib_headers) {
+            return HandleHeaderWrite(pending_headers, strm, httplib_headers);
+        });
+
+    if (!client->send(request, response, error)) {
+        LOG_ERROR(Service_HTTP, "Request failed: {}: {}", error, httplib::to_string(error));
+        state = RequestState::TimedOut;
+    } else {
+        LOG_DEBUG(Service_HTTP, "Request successful");
+        // TODO(B3N30): Verify this state on HW
+        state = RequestState::ReadyToDownloadContent;
     }
 }
 
@@ -312,7 +316,7 @@ void HTTP_C::Initialize(Kernel::HLERequestContext& ctx) {
         shared_memory->SetName("HTTP_C:shared_memory");
     }
 
-    LOG_DEBUG(Service_HTTP, "shared memory size: {} pid: {}", shmem_size, pid);
+    LOG_DEBUG(Service_HTTP, "called, shared memory size: {} pid: {}", shmem_size, pid);
 
     auto* session_data = GetSessionData(ctx.Session());
     ASSERT(session_data);
@@ -372,7 +376,7 @@ void HTTP_C::BeginRequest(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     const Context::Handle context_handle = rp.Pop<u32>();
 
-    LOG_DEBUG(Service_HTTP, "context_id={}", context_handle);
+    LOG_DEBUG(Service_HTTP, "called, context_id={}", context_handle);
 
     if (!PerformStateChecks(ctx, rp, context_handle)) {
         return;
@@ -382,7 +386,7 @@ void HTTP_C::BeginRequest(Kernel::HLERequestContext& ctx) {
 
     // This should never happen in real hardware, but can happen on citra.
     if (http_context.uses_default_client_cert && !http_context.clcert_data->init) {
-        LOG_ERROR(Service_HTTP, "failed to begin HTTP request: client cert not found.");
+        LOG_ERROR(Service_HTTP, "Failed to begin HTTP request: client cert not found.");
         IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
         rb.Push(ERROR_STATE_ERROR);
         return;
@@ -407,7 +411,7 @@ void HTTP_C::BeginRequestAsync(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     const Context::Handle context_handle = rp.Pop<u32>();
 
-    LOG_WARNING(Service_HTTP, "context_id={}", context_handle);
+    LOG_DEBUG(Service_HTTP, "called, context_id={}", context_handle);
 
     if (!PerformStateChecks(ctx, rp, context_handle)) {
         return;
@@ -417,7 +421,7 @@ void HTTP_C::BeginRequestAsync(Kernel::HLERequestContext& ctx) {
 
     // This should never happen in real hardware, but can happen on citra.
     if (http_context.uses_default_client_cert && !http_context.clcert_data->init) {
-        LOG_ERROR(Service_HTTP, "failed to begin HTTP request: client cert not found.");
+        LOG_ERROR(Service_HTTP, "Failed to begin HTTP request: client cert not found.");
         IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
         rb.Push(ERROR_STATE_ERROR);
         return;
@@ -451,7 +455,6 @@ void HTTP_C::ReceiveDataImpl(Kernel::HLERequestContext& ctx, bool timeout) {
 
     struct AsyncData {
         // Input
-        HTTP_C* own;
         u64 timeout_nanos = 0;
         bool timeout;
         Context::Handle context_handle;
@@ -462,17 +465,15 @@ void HTTP_C::ReceiveDataImpl(Kernel::HLERequestContext& ctx, bool timeout) {
         ResultCode async_res = RESULT_SUCCESS;
     };
     std::shared_ptr<AsyncData> async_data = std::make_shared<AsyncData>();
-    async_data->own = this;
     async_data->timeout = timeout;
-
     async_data->context_handle = rp.Pop<u32>();
     async_data->buffer_size = rp.Pop<u32>();
 
     if (timeout) {
         async_data->timeout_nanos = rp.Pop<u64>();
-        LOG_DEBUG(Service_HTTP, "timeout={}", async_data->timeout_nanos);
+        LOG_DEBUG(Service_HTTP, "called, timeout={}", async_data->timeout_nanos);
     } else {
-        LOG_DEBUG(Service_HTTP, "");
+        LOG_DEBUG(Service_HTTP, "called");
     }
     async_data->buffer = &rp.PopMappedBuffer();
 
@@ -481,11 +482,11 @@ void HTTP_C::ReceiveDataImpl(Kernel::HLERequestContext& ctx, bool timeout) {
     }
 
     ctx.RunAsync(
-        [async_data](Kernel::HLERequestContext& ctx) {
-            Context& http_context = async_data->own->GetContext(async_data->context_handle);
+        [this, async_data](Kernel::HLERequestContext& ctx) {
+            Context& http_context = GetContext(async_data->context_handle);
 
             if (async_data->timeout) {
-                auto wait_res = http_context.request_future.wait_for(
+                const auto wait_res = http_context.request_future.wait_for(
                     std::chrono::nanoseconds(async_data->timeout_nanos));
                 if (wait_res == std::future_status::timeout) {
                     async_data->async_res =
@@ -498,15 +499,16 @@ void HTTP_C::ReceiveDataImpl(Kernel::HLERequestContext& ctx, bool timeout) {
             // Simulate small delay from HTTP receive.
             return 1'000'000;
         },
-        [async_data](Kernel::HLERequestContext& ctx) {
-            IPC::RequestBuilder rb(ctx, ctx.CommandID(), 1, 0);
+        [this, async_data](Kernel::HLERequestContext& ctx) {
+            IPC::RequestBuilder rb(ctx, static_cast<u16>(ctx.CommandHeader().command_id.Value()), 1,
+                                   0);
             if (async_data->async_res != RESULT_SUCCESS) {
                 rb.Push(async_data->async_res);
                 return;
             }
-            Context& http_context = async_data->own->GetContext(async_data->context_handle);
+            Context& http_context = GetContext(async_data->context_handle);
 
-            size_t remaining_data =
+            const size_t remaining_data =
                 http_context.response.body.size() - http_context.current_copied_data;
 
             if (async_data->buffer_size >= remaining_data) {
@@ -610,7 +612,7 @@ void HTTP_C::CloseContext(Kernel::HLERequestContext& ctx) {
 
     u32 context_handle = rp.Pop<u32>();
 
-    LOG_DEBUG(Service_HTTP, "handle={}", context_handle);
+    LOG_DEBUG(Service_HTTP, "called, handle={}", context_handle);
 
     auto* session_data = EnsureSessionInitialized(ctx, rp);
     if (!session_data) {
@@ -745,7 +747,8 @@ void HTTP_C::AddPostDataRaw(Kernel::HLERequestContext& ctx) {
     const u32 post_data_len = rp.Pop<u32>();
     auto buffer = rp.PopMappedBuffer();
 
-    LOG_DEBUG(Service_HTTP, "context_handle={}, post_data_len={}", context_handle, post_data_len);
+    LOG_DEBUG(Service_HTTP, "called, context_handle={}, post_data_len={}", context_handle,
+              post_data_len);
 
     if (!PerformStateChecks(ctx, rp, context_handle)) {
         return;
@@ -775,7 +778,6 @@ void HTTP_C::GetResponseHeader(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
 
     struct AsyncData {
-        HTTP_C* own;
         u32 context_handle;
         u32 name_len;
         u32 value_max_len;
@@ -784,7 +786,6 @@ void HTTP_C::GetResponseHeader(Kernel::HLERequestContext& ctx) {
     };
     std::shared_ptr<AsyncData> async_data = std::make_shared<AsyncData>();
 
-    async_data->own = this;
     async_data->context_handle = rp.Pop<u32>();
     async_data->name_len = rp.Pop<u32>();
     async_data->value_max_len = rp.Pop<u32>();
@@ -796,18 +797,18 @@ void HTTP_C::GetResponseHeader(Kernel::HLERequestContext& ctx) {
     }
 
     ctx.RunAsync(
-        [async_data](Kernel::HLERequestContext& ctx) {
-            Context& http_context = async_data->own->GetContext(async_data->context_handle);
+        [this, async_data](Kernel::HLERequestContext& ctx) {
+            Context& http_context = GetContext(async_data->context_handle);
             http_context.request_future.wait();
             return 0;
         },
-        [async_data](Kernel::HLERequestContext& ctx) {
+        [this, async_data](Kernel::HLERequestContext& ctx) {
             std::string header_name_str(
                 reinterpret_cast<const char*>(async_data->header_name.data()),
                 async_data->name_len);
             Common::TruncateString(header_name_str);
 
-            Context& http_context = async_data->own->GetContext(async_data->context_handle);
+            Context& http_context = GetContext(async_data->context_handle);
 
             auto& headers = http_context.response.headers;
             u32 copied_size = 0;
@@ -818,21 +819,23 @@ void HTTP_C::GetResponseHeader(Kernel::HLERequestContext& ctx) {
             auto header = headers.find(header_name_str);
             if (header != headers.end()) {
                 std::string header_value = header->second;
-                copied_size = (u32)header_value.size();
-                if (header_value.size() + 1 > async_data->value_buffer->GetSize()) {
+                copied_size = static_cast<u32>(header_value.size());
+                if (header_value.size() >= async_data->value_buffer->GetSize()) {
                     header_value.resize(async_data->value_buffer->GetSize() - 1);
                 }
                 header_value.push_back('\0');
                 async_data->value_buffer->Write(header_value.data(), 0, header_value.size());
             } else {
                 LOG_DEBUG(Service_HTTP, "header={} not found", header_name_str);
-                IPC::RequestBuilder rb(ctx, ctx.CommandID(), 1, 2);
+                IPC::RequestBuilder rb(
+                    ctx, static_cast<u16>(ctx.CommandHeader().command_id.Value()), 1, 2);
                 rb.Push(ERROR_HEADER_NOT_FOUND);
                 rb.PushMappedBuffer(*async_data->value_buffer);
                 return;
             }
 
-            IPC::RequestBuilder rb(ctx, ctx.CommandID(), 2, 2);
+            IPC::RequestBuilder rb(ctx, static_cast<u16>(ctx.CommandHeader().command_id.Value()), 2,
+                                   2);
             rb.Push(RESULT_SUCCESS);
             rb.Push(copied_size);
             rb.PushMappedBuffer(*async_data->value_buffer);
@@ -852,7 +855,6 @@ void HTTP_C::GetResponseStatusCodeImpl(Kernel::HLERequestContext& ctx, bool time
 
     struct AsyncData {
         // Input
-        HTTP_C* own;
         Context::Handle context_handle;
         bool timeout;
         u64 timeout_nanos = 0;
@@ -861,7 +863,6 @@ void HTTP_C::GetResponseStatusCodeImpl(Kernel::HLERequestContext& ctx, bool time
     };
     std::shared_ptr<AsyncData> async_data = std::make_shared<AsyncData>();
 
-    async_data->own = this;
     async_data->context_handle = rp.Pop<u32>();
     async_data->timeout = timeout;
 
@@ -877,11 +878,11 @@ void HTTP_C::GetResponseStatusCodeImpl(Kernel::HLERequestContext& ctx, bool time
     }
 
     ctx.RunAsync(
-        [async_data](Kernel::HLERequestContext& ctx) {
-            Context& http_context = async_data->own->GetContext(async_data->context_handle);
+        [this, async_data](Kernel::HLERequestContext& ctx) {
+            Context& http_context = GetContext(async_data->context_handle);
 
             if (async_data->timeout) {
-                auto wait_res = http_context.request_future.wait_for(
+                const auto wait_res = http_context.request_future.wait_for(
                     std::chrono::nanoseconds(async_data->timeout_nanos));
                 if (wait_res == std::future_status::timeout) {
                     LOG_DEBUG(Service_HTTP, "Status code: {}", "timeout");
@@ -894,19 +895,21 @@ void HTTP_C::GetResponseStatusCodeImpl(Kernel::HLERequestContext& ctx, bool time
             }
             return 0;
         },
-        [async_data](Kernel::HLERequestContext& ctx) {
+        [this, async_data](Kernel::HLERequestContext& ctx) {
             if (async_data->async_res != RESULT_SUCCESS) {
-                IPC::RequestBuilder rb(ctx, ctx.CommandID(), 1, 0);
+                IPC::RequestBuilder rb(
+                    ctx, static_cast<u16>(ctx.CommandHeader().command_id.Value()), 1, 0);
                 rb.Push(async_data->async_res);
                 return;
             }
 
-            Context& http_context = async_data->own->GetContext(async_data->context_handle);
+            Context& http_context = GetContext(async_data->context_handle);
 
             const u32 response_code = http_context.response.status;
             LOG_DEBUG(Service_HTTP, "Status code: {}, response_code={}", "good", response_code);
 
-            IPC::RequestBuilder rb(ctx, ctx.CommandID(), 2, 0);
+            IPC::RequestBuilder rb(ctx, static_cast<u16>(ctx.CommandHeader().command_id.Value()), 2,
+                                   0);
             rb.Push(RESULT_SUCCESS);
             rb.Push(response_code);
         });
@@ -1225,6 +1228,7 @@ void HTTP_C::GetDownloadSizeState(Kernel::HLERequestContext& ctx) {
 
     LOG_DEBUG(Service_HTTP, "current={}, total={}", http_context.current_copied_data,
               content_length);
+
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 0);
     rb.Push(RESULT_SUCCESS);
     rb.Push(static_cast<u32>(http_context.current_copied_data));
