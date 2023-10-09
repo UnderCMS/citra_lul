@@ -708,8 +708,20 @@ void FS_USER::GetProgramLaunchInfo(Kernel::HLERequestContext& ctx) {
         return;
     }
 
+    ProgramInfo program_info = program_info_result.Unwrap();
+
+    // Always report the launched program mediatype is SD if the friends module is requesting this
+    // information and the media type is game card. Otherwise, friends will append a "romid" field
+    // to the NASC request with a cartridge unique identifier. Using a dump of a game card and the
+    // game card itself at the same time online is known to have caused issues in the past.
+    auto process = ctx.ClientThread()->owner_process.lock();
+    if (process && process->codeset->name == "friends" &&
+        program_info.media_type == MediaType::GameCard) {
+        program_info.media_type = MediaType::SDMC;
+    }
+
     rb.Push(RESULT_SUCCESS);
-    rb.PushRaw(program_info_result.Unwrap());
+    rb.PushRaw<ProgramInfo>(program_info);
 }
 
 void FS_USER::ObsoletedCreateExtSaveData(Kernel::HLERequestContext& ctx) {
