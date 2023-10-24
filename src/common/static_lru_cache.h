@@ -92,7 +92,7 @@ public:
     }
 
 private:
-    list_type::const_iterator find(const key_type& key) const {
+    typename list_type::const_iterator find(const key_type& key) const {
         return std::find_if(m_list.cbegin(), m_list.cend(),
                             [&key](const std::pair<Key, size_t>& el) { return el.first == key; });
     }

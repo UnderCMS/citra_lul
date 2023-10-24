@@ -89,12 +89,16 @@ public:
     /**
      * Whether the backend supports cached reads.
      */
-    virtual bool AllowsCachedReads() const;
+    virtual bool AllowsCachedReads() const {
+        return false;
+    }
 
     /**
      * Whether the cache is ready for a specified offset and length.
      */
-    virtual bool CacheReady(std::size_t file_offset, std::size_t length);
+    virtual bool CacheReady(std::size_t file_offset, std::size_t length) {
+        return false;
+    }
 
 protected:
     std::unique_ptr<DelayGenerator> delay_generator;

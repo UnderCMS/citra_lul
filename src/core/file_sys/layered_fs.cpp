@@ -603,12 +603,4 @@ bool LayeredFS::DumpRomFS(const std::string& target_path) {
     return ExtractDirectory(root, path);
 }
 
-bool LayeredFS::AllowsCachedReads() const {
-    return false;
-}
-
-bool LayeredFS::CacheReady(std::size_t file_offset, std::size_t length) {
-    return false;
-}
-
 } // namespace FileSys
