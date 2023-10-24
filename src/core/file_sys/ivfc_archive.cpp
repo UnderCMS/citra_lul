@@ -117,6 +117,14 @@ bool IVFCFile::SetSize(const u64 size) const {
     return false;
 }
 
+bool FileSys::IVFCFile::AllowsCachedReads() const {
+    return romfs_file->AllowsCachedReads();
+}
+
+bool FileSys::IVFCFile::CacheReady(std::size_t file_offset, std::size_t length) {
+    return romfs_file->CacheReady(file_offset, length);
+}
+
 IVFCFileInMemory::IVFCFileInMemory(std::vector<u8> bytes, u64 offset, u64 size,
                                    std::unique_ptr<DelayGenerator> delay_generator_)
     : romfs_file(std::move(bytes)), data_offset(offset), data_size(size) {

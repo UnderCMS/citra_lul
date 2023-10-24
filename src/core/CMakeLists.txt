@@ -67,6 +67,7 @@ add_library(citra_core STATIC
     file_sys/disk_archive.cpp
     file_sys/disk_archive.h
     file_sys/errors.h
+    file_sys/file_backend.cpp
     file_sys/file_backend.h
     file_sys/delay_generator.cpp
     file_sys/delay_generator.h
