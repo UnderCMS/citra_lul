@@ -70,7 +70,7 @@ private:
     static constexpr size_t cache_line_size = (1 << 13); // About 8KB
     static constexpr size_t cache_line_count = 16;
 
-    Common::static_lru_cache<std::size_t, std::array<u8, cache_line_size>, cache_line_count> cache;
+    Common::StaticLRUCache<std::size_t, std::array<u8, cache_line_size>, cache_line_count> cache;
     // TODO(PabloMK7): Make cache thread safe, read the comment in CacheReady function.
     // std::shared_mutex cache_mutex;
 

@@ -1,4 +1,6 @@
 // Modified version of: https://www.boost.org/doc/libs/1_79_0/boost/compute/detail/lru_cache.hpp
+// Most important change is the use of an array instead of a map, so that elements are
+// statically allocated. The insert and get methods have been merged into the request method.
 // Original license:
 //
 //---------------------------------------------------------------------------//
@@ -17,23 +19,21 @@
 #include <tuple>
 #include <utility>
 
-#include <boost/optional.hpp>
-
 namespace Common {
 
 // a cache which evicts the least recently used item when it is full
 // the cache elements are statically allocated.
 template <class Key, class Value, size_t Size>
-class static_lru_cache {
+class StaticLRUCache {
 public:
-    typedef Key key_type;
-    typedef Value value_type;
-    typedef std::list<std::pair<Key, size_t>> list_type;
-    typedef std::array<Value, Size> array_type;
+    using key_type = Key;
+    using value_type = Value;
+    using list_type = std::list<std::pair<Key, size_t>>;
+    using array_type = std::array<Value, Size>;
 
-    static_lru_cache() {}
+    StaticLRUCache() = default;
 
-    ~static_lru_cache() {}
+    ~StaticLRUCache() = default;
 
     size_t size() const {
         return m_list.size();
@@ -53,11 +53,11 @@ public:
 
     // Requests an element from the cache. If it is not found,
     // the element is inserted using its key.
-    // Returns wether the element was present in the cache
+    // Returns whether the element was present in the cache
     // and a reference to the element itself.
     std::pair<bool, value_type&> request(const key_type& key) {
         // lookup value in the cache
-        typename list_type::const_iterator i = find(key);
+        auto i = find(key);
         if (i == m_list.cend()) {
             size_t next_index = size();
             // insert item into the cache, but first check if it is full
@@ -74,7 +74,7 @@ public:
         // recently used list
         if (i != m_list.cbegin()) {
             // move item to the front of the most recently used list
-            typename list_type::iterator::value_type backup = *i;
+            auto backup = *i;
             m_list.erase(i);
             m_list.push_front(backup);
 
@@ -94,7 +94,7 @@ public:
 private:
     typename list_type::const_iterator find(const key_type& key) const {
         return std::find_if(m_list.cbegin(), m_list.cend(),
-                            [&key](const std::pair<Key, size_t>& el) { return el.first == key; });
+                            [&key](const auto& el) { return el.first == key; });
     }
 
     size_t evict() {

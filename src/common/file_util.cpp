@@ -1159,12 +1159,12 @@ std::size_t IOFile::ReadImpl(void* data, std::size_t length, std::size_t data_si
 static std::size_t pread(int fd, void* buf, size_t count, uint64_t offset) {
     long unsigned int read_bytes = 0;
     OVERLAPPED overlapped = {0};
-    HANDLE file = (HANDLE)_get_osfhandle(fd);
+    HANDLE file = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
 
-    overlapped.OffsetHigh = (uint32_t)((offset & 0xFFFFFFFF00000000LL) >> 32);
-    overlapped.Offset = (uint32_t)(offset & 0xFFFFFFFFLL);
+    overlapped.OffsetHigh = static_cast<uint32_t>(offset >> 32);
+    overlapped.Offset = static_cast<uint32_t>(offset & 0xFFFF'FFFFLL);
     SetLastError(0);
-    bool ret = ReadFile(file, buf, (u32)count, &read_bytes, &overlapped);
+    bool ret = ReadFile(file, buf, static_cast<uint32_t>(count), &read_bytes, &overlapped);
 
     if (!ret && GetLastError() != ERROR_HANDLE_EOF) {
         errno = GetLastError();
