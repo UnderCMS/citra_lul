@@ -7,9 +7,9 @@
 #include <optional>
 #include <unordered_map>
 #include <boost/serialization/base_object.hpp>
-#include "archive.h"
 #include "common/common_types.h"
 #include "core/file_sys/errors.h"
+#include "core/hle/service/fs/archive.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -60,6 +60,7 @@ public:
         u16_le maker_code;
         u16_le remaster_version;
     };
+    static_assert(sizeof(ProductInfo) == 0x14);
 
     void RegisterProductInfo(u32 process_id, const ProductInfo& product_info);
 

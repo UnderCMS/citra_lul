@@ -675,15 +675,14 @@ void FS_USER::GetProductInfo(Kernel::HLERequestContext& ctx) {
 
     u32 process_id = rp.Pop<u32>();
 
-    LOG_DEBUG(Service_FS, "process_id={}", process_id);
+    LOG_DEBUG(Service_FS, "called, process_id={}", process_id);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(6, 0);
 
-    auto product_info = GetProductInfo(process_id);
+    const auto product_info = GetProductInfo(process_id);
     if (!product_info.has_value()) {
         rb.Push(ResultCode(FileSys::ErrCodes::ArchiveNotMounted, ErrorModule::FS,
                            ErrorSummary::NotFound, ErrorLevel::Status));
-        rb.Skip(5, false);
         return;
     }
 
