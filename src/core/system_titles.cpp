@@ -1137,25 +1137,11 @@ static const std::array<SystemTitleCategory, NUM_SYSTEM_TITLE_CATEGORIES>
                      {
                          {
                              .name = "DS Internet",
-                             .sets = SystemTitleSet::Old3ds,
-                             .title_id_lows = {0x42383841, 0x42383841, 0x42383841, 0x42383841,
-                                               0x42383841, 0x42383841, 0x42383841},
-                         },
-                         {
-                             .name = "DS Internet",
-                             .sets = SystemTitleSet::New3ds,
                              .title_id_lows = {0x42383841, 0x42383841, 0x42383841, 0x42383841,
                                                0x42383841, 0x42383841, 0x42383841},
                          },
                          {
                              .name = "DS Download Play",
-                             .sets = SystemTitleSet::Old3ds,
-                             .title_id_lows = {0x484E4441, 0x484E4441, 0x484E4441, 0x484E4441,
-                                               0x484E4443, 0x484E444B, 0x484E4441},
-                         },
-                         {
-                             .name = "DS Download Play",
-                             .sets = SystemTitleSet::New3ds,
                              .title_id_lows = {0x484E4441, 0x484E4441, 0x484E4441, 0x484E4441,
                                                0x484E4443, 0x484E444B, 0x484E4441},
                          },
@@ -1166,25 +1152,11 @@ static const std::array<SystemTitleCategory, NUM_SYSTEM_TITLE_CATEGORIES>
                      {
                          {
                              .name = "DS Card Whitelist",
-                             .sets = SystemTitleSet::Old3ds,
-                             .title_id_lows = {0x484E4841, 0x484E4841, 0x484E4841, 0x484E4841,
-                                               0x484E4841, 0x484E4841, 0x484E4841},
-                         },
-                         {
-                             .name = "DS Card Whitelist",
-                             .sets = SystemTitleSet::New3ds,
                              .title_id_lows = {0x484E4841, 0x484E4841, 0x484E4841, 0x484E4841,
                                                0x484E4841, 0x484E4841, 0x484E4841},
                          },
                          {
                              .name = "DS Version Data",
-                             .sets = SystemTitleSet::Old3ds,
-                             .title_id_lows = {0x484E4C41, 0x484E4C41, 0x484E4C41, 0x484E4C41,
-                                               0x484E4C41, 0x484E4C41, 0x484E4C41},
-                         },
-                         {
-                             .name = "DS Version Data",
-                             .sets = SystemTitleSet::New3ds,
                              .title_id_lows = {0x484E4C41, 0x484E4C41, 0x484E4C41, 0x484E4C41,
                                                0x484E4C41, 0x484E4C41, 0x484E4C41},
                          },
