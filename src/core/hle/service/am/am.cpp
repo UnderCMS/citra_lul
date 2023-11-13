@@ -646,6 +646,8 @@ std::string GetTitleContentPath(Service::FS::MediaType media_type, u64 tid, std:
 }
 
 std::string GetTitlePath(Service::FS::MediaType media_type, u64 tid) {
+    // TODO(PabloMK7) TWL titles should be in TWL Nand. Assuming CTR Nand for now.
+
     u32 high = static_cast<u32>(tid >> 32);
     u32 low = static_cast<u32>(tid & 0xFFFFFFFF);
 

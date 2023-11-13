@@ -1130,7 +1130,6 @@ static const std::array<SystemTitleCategory, NUM_SYSTEM_TITLE_CATEGORIES>
                                                0x20000202, 0x20000202, 0x20000202},
                          },
                      }},
-                // TODO(PabloMK7) Move to TWL Nand, for now keep in CTR NAND
                 {.name = "TWL System Applications",
                  .title_id_high = 0x00048005,
                  .titles =
