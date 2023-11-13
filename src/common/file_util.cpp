@@ -24,6 +24,7 @@
 // windows.h needs to be included before other windows headers
 #include <direct.h> // getcwd
 #include <io.h>
+#include <share.h>
 #include <shellapi.h>
 #include <shlobj.h> // for SHGetFolderPath
 #include <tchar.h>
