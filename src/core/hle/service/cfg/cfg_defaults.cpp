@@ -58,7 +58,7 @@ constexpr std::array<u8, 0x28> DEFAULT_X_DEVICE_TOKEN = {};
 constexpr u32_le DEFAULT_SYSTEM_SETUP_REQUIRED_FLAG = 1;
 constexpr u32_le DEFAULT_DEBUG_MODE_FLAG = 0;
 constexpr u32_le DEFAULT_CLOCK_SEQUENCE = 0;
-constexpr u32_le DEFAULT_NPNS_URL = 0x0000314C; // L1
+constexpr const char DEFAULT_NPNS_URL[4] = {'L', '1', '\0', '\0'};
 constexpr u32_le DEFAULT_0x00160000_DATA = 0;
 constexpr u32_le DEFAULT_MIIVERSE_ACCESS_KEY = 0;
 
@@ -111,8 +111,8 @@ static const std::unordered_map<ConfigBlockID, ConfigBlockDefaults> DEFAULT_CONF
     {DebugModeBlockID,
      {AccessFlag::Global, &DEFAULT_DEBUG_MODE_FLAG, sizeof(DEFAULT_DEBUG_MODE_FLAG)}},
     {ClockSequenceBlockID,
-     {AccessFlag::Global, &DEFAULT_CLOCK_SEQUENCE, sizeof(DEFAULT_CLOCK_SEQUENCE)}},
-    {NpnsUrlID, {AccessFlag::Global, &DEFAULT_NPNS_URL, sizeof(DEFAULT_NPNS_URL)}},
+     {AccessFlag::System, &DEFAULT_CLOCK_SEQUENCE, sizeof(DEFAULT_CLOCK_SEQUENCE)}},
+    {NpnsUrlID, {AccessFlag::Global, DEFAULT_NPNS_URL, sizeof(DEFAULT_NPNS_URL)}},
     {Unknown_0x00160000,
      {AccessFlag::Global, &DEFAULT_0x00160000_DATA, sizeof(DEFAULT_0x00160000_DATA)}},
     {MiiverseAccessKeyBlockID,
