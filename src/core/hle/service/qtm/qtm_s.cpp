@@ -12,7 +12,7 @@ namespace Service::QTM {
 
 void QTM_S::GetHeadtrackingInfo(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    [[maybe_unused]] u64 unknown = rp.Pop<u64>();
+    [[maybe_unused]] const u64 unknown = rp.Pop<u64>();
 
     std::array<u8, 0x40> data{};
     IPC::RequestBuilder rb = rp.MakeBuilder(17, 0);
@@ -33,4 +33,5 @@ QTM_S::QTM_S() : ServiceFramework("qtm:s", 2) {
 
     RegisterHandlers(functions);
 }
+
 } // namespace Service::QTM
