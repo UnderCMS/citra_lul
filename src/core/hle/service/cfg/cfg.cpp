@@ -223,8 +223,7 @@ void Module::Interface::SecureInfoGetByte101(Kernel::HLERequestContext& ctx) {
 void Module::Interface::SetUUIDClockSequence(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
 
-    u32 uuidClockSequence = rp.Pop<u16>();
-    cfg->mcu_data.clock_sequence = uuidClockSequence;
+    cfg->mcu_data.clock_sequence = rp.Pop<u16>();
     cfg->SaveMCUConfig();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
