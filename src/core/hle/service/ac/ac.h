@@ -261,6 +261,16 @@ protected:
 private:
     template <class Archive>
     void serialize(Archive& ar, const unsigned int file_version);
+
+    template <class Archive>
+    static void load_construct(Archive& ar, Module* t, const unsigned int file_version) {
+        ::new (t) Module(Core::Global<Kernel::KernelSystem>());
+    }
+
+    template <class Archive>
+    void save_construct(Archive& ar, const unsigned int file_version) const {}
+
+    friend class ::construct_access;
     friend class boost::serialization::access;
 };
 
