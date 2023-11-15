@@ -1001,7 +1001,7 @@ void SOC_U::SockAtMark(Kernel::HLERequestContext& ctx) {
     if (!socket_holder_optional) {
         return;
     }
-    SocketHolder& holder = socket_holder_optional->get();
+    [[maybe_unused]] SocketHolder& holder = socket_holder_optional->get();
 
     bool is_at_mark = false;
     int func_res = 0;
