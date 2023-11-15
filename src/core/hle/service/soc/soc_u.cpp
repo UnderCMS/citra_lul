@@ -67,6 +67,7 @@ SERIALIZE_EXPORT_IMPL(Service::SOC::SOC_U)
 
 // Change according the debugging needs
 #define LOG_SEND_RECV LOG_TRACE
+#define LOG_POLL LOG_TRACE
 
 namespace Service::SOC {
 
@@ -1020,8 +1021,8 @@ void SOC_U::SockAtMark(Kernel::HLERequestContext& ctx) {
         ret = is_at_mark ? 1 : 0;
     }
 
-    LOG_SEND_RECV(Service_SOC, "called, pid={}, fd={}, ret={}", pid, socket_handle,
-                  static_cast<s32>(ret));
+    LOG_POLL(Service_SOC, "called, pid={}, fd={}, ret={}", pid, socket_handle,
+             static_cast<s32>(ret));
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
     rb.Push(RESULT_SUCCESS);
@@ -1531,8 +1532,8 @@ void SOC_U::Poll(Kernel::HLERequestContext& ctx) {
             rb.Push(async_data->ret);
             rb.PushStaticBuffer(std::move(output_fds), 0);
 
-            LOG_SEND_RECV(Service_SOC, "called, fd_count={}, ret={}", async_data->nfds,
-                          static_cast<s32>(async_data->ret));
+            LOG_POLL(Service_SOC, "called, fd_count={}, ret={}", async_data->nfds,
+                     static_cast<s32>(async_data->ret));
         },
         timeout != 0);
 }
