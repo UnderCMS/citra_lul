@@ -1015,7 +1015,7 @@ void SOC_U::SockAtMark(Kernel::HLERequestContext& ctx) {
 #endif // _WIN32
 
     u32 ret;
-    if (func_res == SOCKET_ERROR) {
+    if (func_res == SOCKET_ERROR_VALUE) {
         ret = TranslateError(GET_ERRNO);
     } else {
         ret = is_at_mark ? 1 : 0;
