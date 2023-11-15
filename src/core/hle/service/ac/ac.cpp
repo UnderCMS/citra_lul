@@ -37,7 +37,7 @@ void Module::Interface::CreateDefaultConfig(Kernel::HLERequestContext& ctx) {
 void Module::Interface::ConnectAsync(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
 
-    u32 pid = rp.PopPID();
+    const u32 pid = rp.PopPID();
     ac->connect_event = rp.PopObject<Kernel::Event>();
     rp.Skip(2, false); // Buffer descriptor
 
@@ -47,8 +47,8 @@ void Module::Interface::ConnectAsync(Kernel::HLERequestContext& ctx) {
         ac->ac_connected = true;
     }
 
-    SharedPage::Handler& shared_page = Core::System::GetInstance().Kernel().GetSharedPageHandler();
-    bool can_access_internet = ac->CanAccessInternet();
+    SharedPage::Handler& shared_page = ac->kernel.GetSharedPageHandler();
+    const bool can_access_internet = ac->CanAccessInternet();
     if (can_access_internet) {
         shared_page.SetWifiState(SharedPage::WifiState::INTERNET);
         shared_page.SetWifiLinkLevel(SharedPage::WifiLinkLevel::BEST);
@@ -65,7 +65,7 @@ void Module::Interface::ConnectAsync(Kernel::HLERequestContext& ctx) {
 
 void Module::Interface::GetConnectResult(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    u32 pid = rp.PopPID();
+    const u32 pid = rp.PopPID();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
@@ -75,7 +75,7 @@ void Module::Interface::GetConnectResult(Kernel::HLERequestContext& ctx) {
 
 void Module::Interface::CancelConnectAsync(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    u32 pid = rp.PopPID();
+    const u32 pid = rp.PopPID();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
@@ -85,7 +85,7 @@ void Module::Interface::CancelConnectAsync(Kernel::HLERequestContext& ctx) {
 
 void Module::Interface::CloseAsync(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    u32 pid = rp.PopPID();
+    const u32 pid = rp.PopPID();
 
     ac->close_event = rp.PopObject<Kernel::Event>();
 
@@ -100,7 +100,7 @@ void Module::Interface::CloseAsync(Kernel::HLERequestContext& ctx) {
 
     ac->ac_connected = false;
 
-    SharedPage::Handler& shared_page = Core::System::GetInstance().Kernel().GetSharedPageHandler();
+    SharedPage::Handler& shared_page = ac->kernel.GetSharedPageHandler();
     shared_page.SetWifiState(SharedPage::WifiState::ENABLED);
     shared_page.SetWifiLinkLevel(SharedPage::WifiLinkLevel::OFF);
 
@@ -112,7 +112,7 @@ void Module::Interface::CloseAsync(Kernel::HLERequestContext& ctx) {
 
 void Module::Interface::GetCloseResult(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    u32 pid = rp.PopPID();
+    const u32 pid = rp.PopPID();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
@@ -138,8 +138,8 @@ void Module::Interface::GetWifiStatus(Kernel::HLERequestContext& ctx) {
 
 void Module::Interface::GetCurrentAPInfo(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    u32 len = rp.Pop<u32>();
-    u32 pid = rp.PopPID();
+    const u32 len = rp.Pop<u32>();
+    const u32 pid = rp.PopPID();
 
     if (!ac->ac_connected) {
         IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
@@ -151,7 +151,7 @@ void Module::Interface::GetCurrentAPInfo(Kernel::HLERequestContext& ctx) {
     constexpr s16 good_signal_strength = -40; // Decibels
     constexpr u8 unknown1_value = 5;
 
-    SharedPage::Handler& shared_page = Core::System::GetInstance().Kernel().GetSharedPageHandler();
+    SharedPage::Handler& shared_page = ac->kernel.GetSharedPageHandler();
     SharedPage::MacAddress mac = shared_page.GetMacAddress();
 
     APInfo info{};
@@ -225,8 +225,8 @@ void Module::Interface::SetFromApplication(Kernel::HLERequestContext& ctx) {
 void Module::Interface::SetRequestEulaVersion(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
 
-    u32 major = rp.Pop<u8>();
-    u32 minor = rp.Pop<u8>();
+    const u32 major = rp.Pop<u8>();
+    const u32 minor = rp.Pop<u8>();
 
     const std::vector<u8>& ac_config = rp.PopStaticBuffer();
 
@@ -280,8 +280,8 @@ void Module::Interface::GetConnectingProxyEnable(Kernel::HLERequestContext& ctx)
 
 void Module::Interface::IsConnected(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    u32 unk = rp.Pop<u32>();
-    u32 pid = rp.PopPID();
+    const u32 unk = rp.Pop<u32>();
+    const u32 pid = rp.PopPID();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
     rb.Push(RESULT_SUCCESS);
@@ -293,7 +293,7 @@ void Module::Interface::IsConnected(Kernel::HLERequestContext& ctx) {
 void Module::Interface::SetClientVersion(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
 
-    u32 version = rp.Pop<u32>();
+    const u32 version = rp.Pop<u32>();
     rp.PopPID();
 
     LOG_DEBUG(Service_AC, "(STUBBED) called, version: 0x{:08X}", version);
@@ -310,12 +310,14 @@ bool Module::CanAccessInternet() {
     return false;
 }
 
+Module::Module(Kernel::KernelSystem& kernel) : kernel(kernel) {}
+
 Module::Interface::Interface(std::shared_ptr<Module> ac, const char* name, u32 max_session)
     : ServiceFramework(name, max_session), ac(std::move(ac)) {}
 
 void InstallInterfaces(Core::System& system) {
     auto& service_manager = system.ServiceManager();
-    auto ac = std::make_shared<Module>();
+    auto ac = std::make_shared<Module>(system.Kernel());
     std::make_shared<AC_I>(ac)->InstallAsService(service_manager);
     std::make_shared<AC_U>(ac)->InstallAsService(service_manager);
 }

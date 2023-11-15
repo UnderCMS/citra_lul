@@ -19,6 +19,8 @@ class Event;
 namespace Service::AC {
 class Module final {
 public:
+    explicit Module(Kernel::KernelSystem& kernel);
+
     class Interface : public ServiceFramework<Interface> {
     public:
         Interface(std::shared_ptr<Module> ac, const char* name, u32 max_session);
@@ -239,7 +241,7 @@ protected:
         u8 unknown2;
         u16 unknown3;
     };
-    static_assert(sizeof(APInfo) == 0x34);
+    static_assert(sizeof(APInfo) == 0x34, "Invalid APInfo size");
 
     struct ACConfig {
         std::array<u8, 0x200> data;
@@ -252,6 +254,7 @@ protected:
     std::shared_ptr<Kernel::Event> close_event;
     std::shared_ptr<Kernel::Event> connect_event;
     std::shared_ptr<Kernel::Event> disconnect_event;
+    Kernel::KernelSystem& kernel;
 
     bool CanAccessInternet();
 
