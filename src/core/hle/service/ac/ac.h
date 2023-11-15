@@ -277,3 +277,5 @@ private:
 void InstallInterfaces(Core::System& system);
 
 } // namespace Service::AC
+
+BOOST_SERIALIZATION_CONSTRUCT(Service::AC::Module);
