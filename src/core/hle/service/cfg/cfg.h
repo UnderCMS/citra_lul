@@ -82,7 +82,7 @@ enum ConfigBlockID {
     DebugModeBlockID = 0x00130000,
     ClockSequenceBlockID = 0x00150000,
     Unknown_0x00150001 = 0x00150001,
-    NpnsUrlID = 0x00150002,
+    ServerType = 0x00150002,
     Unknown_0x00160000 = 0x00160000,
     MiiverseAccessKeyBlockID = 0x00170000,
     QtmInfraredLedRelatedBlockID = 0x00180000,
@@ -373,7 +373,7 @@ private:
         Header header;
         u32 clock_sequence = 0;
 
-        bool IsValid() {
+        [[nodiscard]] bool IsValid() const {
             return header.magic == Header::MAGIC_VALUE && header.version == Header::VERSION_VALUE;
         }
     };
