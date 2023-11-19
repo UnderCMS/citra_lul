@@ -70,6 +70,9 @@ public:
     /// Retrieves name of a function based on the header code. For IPC Recorder.
     std::string GetFunctionName(IPC::Header header) const;
 
+    /// Called after all the HLE handlers have been installed.
+    virtual void PostInstallCallback() {}
+
 protected:
     /// Member-function pointer type of SyncRequest handlers.
     template <typename Self>

@@ -17,6 +17,7 @@ class Event;
 }
 
 namespace Service::AC {
+class AC_U;
 class Module final {
 public:
     explicit Module(Kernel::KernelSystem& kernel);
@@ -202,6 +203,14 @@ public:
          */
         void SetClientVersion(Kernel::HLERequestContext& ctx);
 
+        // Connects from a HLE handler instead of a real thread.
+        // Returns a fake PID number to be used with DisconnectFromHLE
+        u32 ConnectFromHLE();
+
+        // Disconnects from a HLE handler, a fake pid given by
+        // ConnectFromHLE must be provided.
+        void DisconnectFromHLE(u32 fake_pid);
+
     protected:
         std::shared_ptr<Module> ac;
     };
@@ -209,6 +218,9 @@ public:
 protected:
     static constexpr ResultCode ERROR_NOT_CONNECTED =
         ResultCode(302, ErrorModule::AC, ErrorSummary::InvalidState, ErrorLevel::Usage);
+
+    static constexpr ResultCode ERROR_ALREADY_CONNECTED =
+        ResultCode(301, ErrorModule::AC, ErrorSummary::InvalidState, ErrorLevel::Usage);
 
     enum class NetworkStatus {
         STATUS_DISCONNECTED = 0,
@@ -255,6 +267,14 @@ protected:
     std::shared_ptr<Kernel::Event> connect_event;
     std::shared_ptr<Kernel::Event> disconnect_event;
     Kernel::KernelSystem& kernel;
+    ResultCode connect_result = RESULT_SUCCESS;
+    ResultCode close_result = RESULT_SUCCESS;
+    std::set<u32> connected_pids;
+    u32 current_fake_pid = 0x80000000;
+
+    void Connect(u32 pid);
+
+    void Disconnect(u32 pid);
 
     bool CanAccessInternet();
 
@@ -275,6 +295,8 @@ private:
 };
 
 void InstallInterfaces(Core::System& system);
+
+std::shared_ptr<AC_U> GetService(Core::System& system);
 
 } // namespace Service::AC
 

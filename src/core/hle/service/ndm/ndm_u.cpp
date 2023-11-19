@@ -5,6 +5,8 @@
 #include "common/archives.h"
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
+#include "core/hle/service/ac/ac.h"
+#include "core/hle/service/ac/ac_u.h"
 #include "core/hle/service/ndm/ndm_u.h"
 
 SERIALIZE_EXPORT_IMPL(Service::NDM::NDM_U)
@@ -208,6 +210,15 @@ void NDM_U::ClearHalfAwakeMacFilter(Kernel::HLERequestContext& ctx) {
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
     LOG_WARNING(Service_NDM, "(STUBBED)");
+}
+
+void NDM_U::PostInstallCallback() {
+    // TODO(PabloMK7) Figure out how and when NDM calls AC::ConnectAsync
+    // during its initialization process. For now, fake a connection.
+    auto ac = Service::AC::GetService(Core::System::GetInstance());
+    if (ac) {
+        ac_fake_pid = ac->ConnectFromHLE();
+    }
 }
 
 NDM_U::NDM_U() : ServiceFramework("ndm:u", 6) {

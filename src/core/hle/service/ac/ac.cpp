@@ -41,21 +41,7 @@ void Module::Interface::ConnectAsync(Kernel::HLERequestContext& ctx) {
     ac->connect_event = rp.PopObject<Kernel::Event>();
     rp.Skip(2, false); // Buffer descriptor
 
-    if (ac->connect_event) {
-        ac->connect_event->SetName("AC:connect_event");
-        ac->connect_event->Signal();
-        ac->ac_connected = true;
-    }
-
-    SharedPage::Handler& shared_page = ac->kernel.GetSharedPageHandler();
-    const bool can_access_internet = ac->CanAccessInternet();
-    if (can_access_internet) {
-        shared_page.SetWifiState(SharedPage::WifiState::INTERNET);
-        shared_page.SetWifiLinkLevel(SharedPage::WifiLinkLevel::BEST);
-    } else {
-        shared_page.SetWifiState(SharedPage::WifiState::ENABLED);
-        shared_page.SetWifiLinkLevel(SharedPage::WifiLinkLevel::OFF);
-    }
+    ac->Connect(pid);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
@@ -65,12 +51,10 @@ void Module::Interface::ConnectAsync(Kernel::HLERequestContext& ctx) {
 
 void Module::Interface::GetConnectResult(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    const u32 pid = rp.PopPID();
+    [[maybe_unused]] const u32 pid = rp.PopPID();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
-    rb.Push(RESULT_SUCCESS);
-
-    LOG_WARNING(Service_AC, "(STUBBED) called, pid={}", pid);
+    rb.Push(ac->connect_result);
 }
 
 void Module::Interface::CancelConnectAsync(Kernel::HLERequestContext& ctx) {
@@ -89,20 +73,7 @@ void Module::Interface::CloseAsync(Kernel::HLERequestContext& ctx) {
 
     ac->close_event = rp.PopObject<Kernel::Event>();
 
-    if (ac->ac_connected && ac->disconnect_event) {
-        ac->disconnect_event->Signal();
-    }
-
-    if (ac->close_event) {
-        ac->close_event->SetName("AC:close_event");
-        ac->close_event->Signal();
-    }
-
-    ac->ac_connected = false;
-
-    SharedPage::Handler& shared_page = ac->kernel.GetSharedPageHandler();
-    shared_page.SetWifiState(SharedPage::WifiState::ENABLED);
-    shared_page.SetWifiLinkLevel(SharedPage::WifiLinkLevel::OFF);
+    ac->Disconnect(pid);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
@@ -112,12 +83,10 @@ void Module::Interface::CloseAsync(Kernel::HLERequestContext& ctx) {
 
 void Module::Interface::GetCloseResult(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    const u32 pid = rp.PopPID();
+    [[maybe_unused]] const u32 pid = rp.PopPID();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
-    rb.Push(RESULT_SUCCESS);
-
-    LOG_WARNING(Service_AC, "(STUBBED) called, pid={}", pid);
+    rb.Push(ac->close_result);
 }
 
 void Module::Interface::GetWifiStatus(Kernel::HLERequestContext& ctx) {
@@ -302,6 +271,74 @@ void Module::Interface::SetClientVersion(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
 }
 
+u32 Module::Interface::ConnectFromHLE() {
+    u32 new_fake_pid = ++ac->current_fake_pid;
+    ac->Connect(new_fake_pid);
+    return new_fake_pid;
+}
+
+void Module::Interface::DisconnectFromHLE(u32 fake_pid) {
+    ac->Disconnect(fake_pid);
+}
+
+void Module::Connect(u32 pid) {
+    if (connect_event) {
+        connect_event->SetName("AC:connect_event");
+        connect_event->Signal();
+    }
+
+    if (connected_pids.size() == 0) {
+        // TODO(PabloMK7) Publish to subscriber 0x300
+
+        ac_connected = true;
+
+        // TODO(PabloMK7) Move shared page modification to NWM once it is implemented.
+        SharedPage::Handler& shared_page = kernel.GetSharedPageHandler();
+        const bool can_access_internet = CanAccessInternet();
+        if (can_access_internet) {
+            shared_page.SetWifiState(SharedPage::WifiState::INTERNET);
+            shared_page.SetWifiLinkLevel(SharedPage::WifiLinkLevel::BEST);
+        } else {
+            shared_page.SetWifiState(SharedPage::WifiState::ENABLED);
+            shared_page.SetWifiLinkLevel(SharedPage::WifiLinkLevel::OFF);
+        }
+    }
+
+    if (connected_pids.find(pid) == connected_pids.end()) {
+        connected_pids.insert(pid);
+        connect_result = RESULT_SUCCESS;
+    } else {
+        connect_result = ERROR_ALREADY_CONNECTED;
+    }
+}
+
+void Module::Disconnect(u32 pid) {
+
+    if (close_event) {
+        close_event->SetName("AC:close_event");
+        close_event->Signal();
+    }
+
+    if (connected_pids.find(pid) != connected_pids.end()) {
+        connected_pids.erase(pid);
+        close_result = RESULT_SUCCESS;
+    } else {
+        close_result = ERROR_NOT_CONNECTED;
+    }
+
+    if (connected_pids.size() == 0) {
+        ac_connected = false;
+        if (disconnect_event) {
+            disconnect_event->Signal();
+        }
+
+        // TODO(PabloMK7) Move shared page modification to NWM once it is implemented.
+        SharedPage::Handler& shared_page = kernel.GetSharedPageHandler();
+        shared_page.SetWifiState(SharedPage::WifiState::ENABLED);
+        shared_page.SetWifiLinkLevel(SharedPage::WifiLinkLevel::OFF);
+    }
+}
+
 bool Module::CanAccessInternet() {
     std::shared_ptr<SOC::SOC_U> socu_module = SOC::GetService(Core::System::GetInstance());
     if (socu_module) {
@@ -322,12 +359,23 @@ void InstallInterfaces(Core::System& system) {
     std::make_shared<AC_U>(ac)->InstallAsService(service_manager);
 }
 
+std::shared_ptr<AC_U> GetService(Core::System& system) {
+    return system.ServiceManager().GetService<AC_U>("ac:u");
+}
+
 template <class Archive>
 void Module::serialize(Archive& ar, const unsigned int) {
     ar& ac_connected;
     ar& close_event;
     ar& connect_event;
     ar& disconnect_event;
+    u32 connect_result_32 = connect_result.raw;
+    ar& connect_result_32;
+    connect_result.raw = connect_result_32;
+    u32 close_result_32 = close_result.raw;
+    ar& close_result_32;
+    close_result.raw = close_result_32;
+    ar& connected_pids;
     // default_config is never written to
 }
 

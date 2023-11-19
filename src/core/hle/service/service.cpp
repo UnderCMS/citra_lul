@@ -218,6 +218,9 @@ void Init(Core::System& core) {
         if (!AttemptLLE(service_module) && service_module.init_function != nullptr)
             service_module.init_function(core);
     }
+
+    SM::ServiceManager::RunHLEPostInstallCallbacks(core);
+
     LOG_DEBUG(Service, "initialized OK");
 }
 

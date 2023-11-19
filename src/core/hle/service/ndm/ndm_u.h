@@ -222,6 +222,8 @@ private:
      */
     void ClearHalfAwakeMacFilter(Kernel::HLERequestContext& ctx);
 
+    void PostInstallCallback() override;
+
     enum class Daemon : u32 {
         Cec = 0,
         Boss = 1,
@@ -271,6 +273,7 @@ private:
     u32 scan_interval = DEFAULT_SCAN_INTERVAL;
     u32 retry_interval = DEFAULT_RETRY_INTERVAL;
     bool daemon_lock_enabled = false;
+    u32 ac_fake_pid;
 
     template <class Archive>
     void serialize(Archive& ar, const unsigned int) {
@@ -282,6 +285,7 @@ private:
         ar& scan_interval;
         ar& retry_interval;
         ar& daemon_lock_enabled;
+        ar& ac_fake_pid;
     }
     friend class boost::serialization::access;
 };

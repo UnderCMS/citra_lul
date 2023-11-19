@@ -49,6 +49,8 @@ class ServiceManager {
 public:
     static void InstallInterfaces(Core::System& system);
 
+    static void RunHLEPostInstallCallbacks(Core::System& system);
+
     explicit ServiceManager(Core::System& system);
 
     ResultVal<std::shared_ptr<Kernel::ServerPort>> RegisterService(std::string name,
