@@ -449,14 +449,13 @@ std::optional<std::reference_wrapper<SocketHolder>> SOC_U::GetSocketHolder(u32 c
 }
 
 void SOC_U::CloseAndDeleteAllSockets(s32 process_id) {
-    for (auto it = created_sockets.begin(); it != created_sockets.end();) {
-        if (process_id >= 0 && it->second.ownerProcess != static_cast<u32>(process_id)) {
-            it++;
-            continue;
+    std::erase_if(created_sockets, [process_id](const auto& entry) {
+        if (process_id == -1 || entry.second.ownerProcess == static_cast<u32>(process_id)) {
+            closesocket(entry.second.socket_fd);
+            return true;
         }
-        closesocket(it->second.socket_fd);
-        it = created_sockets.erase(it);
-    }
+        return false;
+    });
 }
 
 static u32 SendRecvFlagsToPlatform(u32 flags) {
@@ -731,7 +730,7 @@ struct CTRAddrInfo {
 };
 
 struct HostByNameData {
-    static const u32 max_entries = 24;
+    static constexpr u32 max_entries = 24;
 
     u16_le addr_type;
     u16_le addr_len;
