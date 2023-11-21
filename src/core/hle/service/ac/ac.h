@@ -17,8 +17,11 @@ class Event;
 }
 
 namespace Service::AC {
+class AC_U;
 class Module final {
 public:
+    explicit Module(Kernel::KernelSystem& kernel);
+
     class Interface : public ServiceFramework<Interface> {
     public:
         Interface(std::shared_ptr<Module> ac, const char* name, u32 max_session);
@@ -56,6 +59,15 @@ public:
         void GetConnectResult(Kernel::HLERequestContext& ctx);
 
         /**
+         * AC::CancelConnectAsync service function
+         *  Inputs:
+         *      1 : ProcessId Header
+         *  Outputs:
+         *      1 : Result of function, 0 on success, otherwise error code
+         */
+        void CancelConnectAsync(Kernel::HLERequestContext& ctx);
+
+        /**
          * AC::CloseAsync service function
          *  Inputs:
          *      1 : ProcessId Header
@@ -76,12 +88,38 @@ public:
         void GetCloseResult(Kernel::HLERequestContext& ctx);
 
         /**
+         * AC::GetStatus service function
+         *  Outputs:
+         *      1 : Result of function, 0 on success, otherwise error code
+         *      2 : Output status
+         */
+        void GetStatus(Kernel::HLERequestContext& ctx);
+
+        /**
          * AC::GetWifiStatus service function
          *  Outputs:
          *      1 : Result of function, 0 on success, otherwise error code
-         *      2 : Output connection type, 0 = none, 1 = Old3DS Internet, 2 = New3DS Internet.
+         *      2 : Output wifi status
          */
         void GetWifiStatus(Kernel::HLERequestContext& ctx);
+
+        /**
+         * AC::GetCurrentAPInfo service function
+         *  Inputs:
+         *      1 : Size
+         *      2-3 : ProcessID
+         *  Outputs:
+         *      1 : Result of function, 0 on success, otherwise error code
+         */
+        void GetCurrentAPInfo(Kernel::HLERequestContext& ctx);
+
+        /**
+         * AC::GetConnectingInfraPriority service function
+         *  Outputs:
+         *      1 : Result of function, 0 on success, otherwise error code
+         *      2 : Output connecting priority
+         */
+        void GetConnectingInfraPriority(Kernel::HLERequestContext& ctx);
 
         /**
          * AC::GetInfraPriority service function
@@ -93,6 +131,15 @@ public:
          *      2 : Infra Priority
          */
         void GetInfraPriority(Kernel::HLERequestContext& ctx);
+
+        /**
+         * AC::SetFromApplication service function
+         *  Inputs:
+         *      1-2 : Input config
+         *  Outputs:
+         *      1-2 : Output config
+         */
+        void SetFromApplication(Kernel::HLERequestContext& ctx);
 
         /**
          * AC::SetRequestEulaVersion service function
@@ -108,6 +155,17 @@ public:
          *      2 : Infra Priority
          */
         void SetRequestEulaVersion(Kernel::HLERequestContext& ctx);
+
+        /**
+         * AC::GetNZoneBeaconNotFoundEvent service function
+         *  Inputs:
+         *      1 : ProcessId Header
+         *      3 : Copy Handle Header
+         *      4 : Event handle, should be signaled when AC cannot find NZone
+         *  Outputs:
+         *      1 : Result of function, 0 on success, otherwise error code
+         */
+        void GetNZoneBeaconNotFoundEvent(Kernel::HLERequestContext& ctx);
 
         /**
          * AC::RegisterDisconnectEvent service function
@@ -145,16 +203,57 @@ public:
          */
         void SetClientVersion(Kernel::HLERequestContext& ctx);
 
+        // Connects from a HLE handler instead of a real thread.
+        // Returns a fake PID number to be used with DisconnectFromHLE
+        u32 ConnectFromHLE();
+
+        // Disconnects from a HLE handler, a fake pid given by
+        // ConnectFromHLE must be provided.
+        void DisconnectFromHLE(u32 fake_pid);
+
     protected:
         std::shared_ptr<Module> ac;
     };
 
 protected:
+    static constexpr ResultCode ERROR_NOT_CONNECTED =
+        ResultCode(302, ErrorModule::AC, ErrorSummary::InvalidState, ErrorLevel::Usage);
+
+    static constexpr ResultCode ERROR_ALREADY_CONNECTED =
+        ResultCode(301, ErrorModule::AC, ErrorSummary::InvalidState, ErrorLevel::Usage);
+
+    enum class NetworkStatus {
+        STATUS_DISCONNECTED = 0,
+        STATUS_ENABLED = 1,
+        STATUS_LOCAL = 2,
+        STATUS_INTERNET = 3,
+    };
+
     enum class WifiStatus {
         STATUS_DISCONNECTED = 0,
-        STATUS_CONNECTED_O3DS = 1,
-        STATUS_CONNECTED_N3DS = 2,
+        STATUS_CONNECTED_SLOT1 = (1 << 0),
+        STATUS_CONNECTED_SLOT2 = (1 << 1),
+        STATUS_CONNECTED_SLOT3 = (1 << 2),
     };
+
+    enum class InfraPriority {
+        PRIORITY_HIGH = 0,
+        PRIORITY_LOW = 1,
+        PRIORITY_NONE = 2,
+    };
+
+    struct APInfo {
+        u32 ssid_len;
+        std::array<char, 0x20> ssid;
+        std::array<u8, 0x6> bssid;
+        u16 padding;
+        s16 signal_strength;
+        u16 link_level;
+        u8 unknown1;
+        u8 unknown2;
+        u16 unknown3;
+    };
+    static_assert(sizeof(APInfo) == 0x34, "Invalid APInfo size");
 
     struct ACConfig {
         std::array<u8, 0x200> data;
@@ -167,13 +266,38 @@ protected:
     std::shared_ptr<Kernel::Event> close_event;
     std::shared_ptr<Kernel::Event> connect_event;
     std::shared_ptr<Kernel::Event> disconnect_event;
+    Kernel::KernelSystem& kernel;
+    ResultCode connect_result = RESULT_SUCCESS;
+    ResultCode close_result = RESULT_SUCCESS;
+    std::set<u32> connected_pids;
+    u32 current_fake_pid = 0x80000000;
+
+    void Connect(u32 pid);
+
+    void Disconnect(u32 pid);
+
+    bool CanAccessInternet();
 
 private:
     template <class Archive>
     void serialize(Archive& ar, const unsigned int file_version);
+
+    template <class Archive>
+    static void load_construct(Archive& ar, Module* t, const unsigned int file_version) {
+        ::new (t) Module(Core::Global<Kernel::KernelSystem>());
+    }
+
+    template <class Archive>
+    void save_construct(Archive& ar, const unsigned int file_version) const {}
+
+    friend class ::construct_access;
     friend class boost::serialization::access;
 };
 
 void InstallInterfaces(Core::System& system);
 
+std::shared_ptr<AC_U> GetService(Core::System& system);
+
 } // namespace Service::AC
+
+BOOST_SERIALIZATION_CONSTRUCT(Service::AC::Module);

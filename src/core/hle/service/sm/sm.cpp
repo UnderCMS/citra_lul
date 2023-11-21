@@ -32,6 +32,15 @@ void ServiceManager::InstallInterfaces(Core::System& system) {
     system.ServiceManager().srv_interface = srv;
 }
 
+void ServiceManager::RunHLEPostInstallCallbacks(Core::System& system) {
+    for (auto& it : system.ServiceManager().registered_services) {
+        auto hle_handler = it.second->GetServerPort()->hle_handler;
+        if (hle_handler) {
+            reinterpret_cast<ServiceFrameworkBase*>(hle_handler.get())->PostInstallCallback();
+        }
+    }
+}
+
 ResultVal<std::shared_ptr<Kernel::ServerPort>> ServiceManager::RegisterService(
     std::string name, unsigned int max_sessions) {
 

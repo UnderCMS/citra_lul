@@ -136,8 +136,22 @@ void Handler::SetMacAddress(const MacAddress& addr) {
     std::memcpy(shared_page.wifi_macaddr, addr.data(), sizeof(MacAddress));
 }
 
+MacAddress Handler::GetMacAddress() {
+    MacAddress addr;
+    std::memcpy(addr.data(), shared_page.wifi_macaddr, sizeof(MacAddress));
+    return addr;
+}
+
 void Handler::SetWifiLinkLevel(WifiLinkLevel level) {
     shared_page.wifi_link_level = static_cast<u8>(level);
+}
+
+WifiLinkLevel Handler::GetWifiLinkLevel() {
+    return static_cast<WifiLinkLevel>(shared_page.wifi_link_level);
+}
+
+void Handler::SetWifiState(WifiState state) {
+    shared_page.wifi_state = static_cast<u8>(state);
 }
 
 void Handler::Set3DLed(u8 state) {
