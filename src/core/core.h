@@ -349,6 +349,15 @@ public:
     /// Applies any changes to settings to this core instance.
     void ApplySettings();
 
+    /// Sleep main thread of the first ever launched non-sysmodule process.
+    void SetAppMainThreadExtendedSleep(bool requires_sleep) {
+        main_thread_extended_sleep = requires_sleep;
+    }
+
+    bool GetAppMainThreadExtendedSleep() {
+        return main_thread_extended_sleep;
+    }
+
 private:
     /**
      * Initialize the emulated system.
@@ -438,6 +447,8 @@ private:
 
     std::function<bool()> mic_permission_func;
     bool mic_permission_granted = false;
+
+    bool main_thread_extended_sleep = false;
 
     friend class boost::serialization::access;
     template <typename Archive>
