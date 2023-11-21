@@ -669,6 +669,7 @@ void Module::SaveMCUConfig() {
     if (mcu_data_file.IsOpen()) {
         mcu_data_file.WriteBytes(&mcu_data, sizeof(MCUData));
     }
+}
 void Module::InvalidateSecureData() {
     secure_info_a_loaded = local_friend_code_seed_b_loaded = false;
 }
