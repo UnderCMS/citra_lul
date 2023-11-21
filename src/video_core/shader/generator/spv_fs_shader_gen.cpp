@@ -2,6 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <boost/container/small_vector.hpp>
 #include "video_core/shader/generator/spv_fs_shader_gen.h"
 
 namespace Pica::Shader::Generator::SPIRV {
@@ -11,11 +12,14 @@ using Pica::LightingRegs;
 using Pica::RasterizerRegs;
 using Pica::TexturingRegs;
 using TevStageConfig = TexturingRegs::TevStageConfig;
+using TextureType = TexturingRegs::TextureConfig::TextureType;
 
 constexpr u32 SPIRV_VERSION_1_3 = 0x00010300;
 
-FragmentModule::FragmentModule(const FSConfig& config_)
-    : Sirit::Module{SPIRV_VERSION_1_3}, config{config_} {
+FragmentModule::FragmentModule(const FSConfig& config_, const Profile& profile_)
+    : Sirit::Module{SPIRV_VERSION_1_3}, config{config_}, profile{profile_},
+      use_fragment_shader_barycentric{profile.has_fragment_shader_barycentric &&
+                                      config.lighting.enable} {
     DefineArithmeticTypes();
     DefineUniformStructs();
     DefineInterface();
@@ -169,11 +173,9 @@ void FragmentModule::WriteFog() {
     const Id fog_lut_offset{GetShaderDataMember(i32_id, ConstS32(10))};
     const Id coord{OpIAdd(i32_id, OpConvertFToS(i32_id, fog_i), fog_lut_offset)};
     if (!Sirit::ValidId(texture_buffer_lut_lf)) {
-        const Id sampled_image{TypeSampledImage(image_buffer_id)};
-        texture_buffer_lut_lf = OpLoad(sampled_image, texture_buffer_lut_lf_id);
+        texture_buffer_lut_lf = OpLoad(image_buffer_id, texture_buffer_lut_lf_id);
     }
-    const Id fog_lut_entry_rgba{
-        OpImageFetch(vec_ids.Get(4), OpImage(image_buffer_id, texture_buffer_lut_lf), coord)};
+    const Id fog_lut_entry_rgba{OpImageFetch(vec_ids.Get(4), texture_buffer_lut_lf, coord)};
     const Id fog_lut_r{OpCompositeExtract(f32_id, fog_lut_entry_rgba, 0)};
     const Id fog_lut_g{OpCompositeExtract(f32_id, fog_lut_entry_rgba, 1)};
     Id fog_factor{OpFma(f32_id, fog_f, fog_lut_g, fog_lut_r)};
@@ -270,9 +272,48 @@ void FragmentModule::WriteLighting() {
         return OpFAdd(vec_ids.Get(3), v, val2);
     };
 
+    // Perform quaternion correction in the fragment shader if fragment_shader_barycentric is
+    // supported.
+    Id normquat{};
+    if (use_fragment_shader_barycentric) {
+        const auto are_quaternions_opposite = [&](Id qa, Id qb) {
+            const Id dot_q{OpDot(f32_id, qa, qb)};
+            const Id dot_le_zero{OpFOrdLessThan(bool_id, dot_q, ConstF32(0.f))};
+            return OpCompositeConstruct(bvec_ids.Get(4), dot_le_zero, dot_le_zero, dot_le_zero,
+                                        dot_le_zero);
+        };
+
+        const Id input_pointer_id{TypePointer(spv::StorageClass::Input, vec_ids.Get(4))};
+        const Id normquat_0{
+            OpLoad(vec_ids.Get(4), OpAccessChain(input_pointer_id, normquat_id, ConstS32(0)))};
+        const Id normquat_1{
+            OpLoad(vec_ids.Get(4), OpAccessChain(input_pointer_id, normquat_id, ConstS32(1)))};
+        const Id normquat_1_correct{OpSelect(vec_ids.Get(4),
+                                             are_quaternions_opposite(normquat_0, normquat_1),
+                                             OpFNegate(vec_ids.Get(4), normquat_1), normquat_1)};
+        const Id normquat_2{
+            OpLoad(vec_ids.Get(4), OpAccessChain(input_pointer_id, normquat_id, ConstS32(2)))};
+        const Id normquat_2_correct{OpSelect(vec_ids.Get(4),
+                                             are_quaternions_opposite(normquat_0, normquat_2),
+                                             OpFNegate(vec_ids.Get(4), normquat_2), normquat_2)};
+        const Id bary_coord{OpLoad(vec_ids.Get(3), gl_bary_coord_id)};
+        const Id bary_coord_x{OpCompositeExtract(f32_id, bary_coord, 0)};
+        const Id bary_coord_y{OpCompositeExtract(f32_id, bary_coord, 1)};
+        const Id bary_coord_z{OpCompositeExtract(f32_id, bary_coord, 2)};
+        const Id normquat_0_final{OpVectorTimesScalar(vec_ids.Get(4), normquat_0, bary_coord_x)};
+        const Id normquat_1_final{
+            OpVectorTimesScalar(vec_ids.Get(4), normquat_1_correct, bary_coord_y)};
+        const Id normquat_2_final{
+            OpVectorTimesScalar(vec_ids.Get(4), normquat_2_correct, bary_coord_z)};
+        normquat = OpFAdd(vec_ids.Get(4), normquat_0_final,
+                          OpFAdd(vec_ids.Get(4), normquat_1_final, normquat_2_final));
+    } else {
+        normquat = OpLoad(vec_ids.Get(4), normquat_id);
+    }
+
     // Rotate the surface-local normal by the interpolated normal quaternion to convert it to
     // eyespace.
-    const Id normalized_normquat{OpNormalize(vec_ids.Get(4), OpLoad(vec_ids.Get(4), normquat_id))};
+    const Id normalized_normquat{OpNormalize(vec_ids.Get(4), normquat)};
     const Id normal{quaternion_rotate(normalized_normquat, surface_normal)};
     const Id tangent{quaternion_rotate(normalized_normquat, surface_tangent)};
 
@@ -937,7 +978,7 @@ void FragmentModule::DefineTexSampler(u32 texture_unit) {
     };
 
     const auto sample_3d = [&](Id tex_id, bool projection) {
-        const Id image_type = tex_id.value == tex_cube_id.value ? image_cube_id : image2d_id;
+        const Id image_type = !projection ? image_cube_id : image2d_id;
         const Id sampled_image{OpLoad(TypeSampledImage(image_type), tex_id)};
         const Id texcoord0_w{OpLoad(f32_id, texcoord0_w_id)};
         const Id coord{OpCompositeConstruct(vec_ids.Get(3), OpCompositeExtract(f32_id, texcoord, 0),
@@ -961,7 +1002,7 @@ void FragmentModule::DefineTexSampler(u32 texture_unit) {
             ret_val = sample_3d(tex0_id, true);
             break;
         case Pica::TexturingRegs::TextureConfig::TextureCube:
-            ret_val = sample_3d(tex_cube_id, false);
+            ret_val = sample_3d(tex0_id, false);
             break;
         case Pica::TexturingRegs::TextureConfig::Shadow2D:
             ret_val = SampleShadow();
@@ -1110,11 +1151,9 @@ Id FragmentModule::ProcTexLookupLUT(Id offset, Id coord) {
     const Id index_f{OpFSub(f32_id, coord, index_i)};
     const Id p{OpIAdd(i32_id, OpConvertFToS(i32_id, index_i), offset)};
     if (!Sirit::ValidId(texture_buffer_lut_rg)) {
-        const Id sampled_image{TypeSampledImage(image_buffer_id)};
-        texture_buffer_lut_rg = OpLoad(sampled_image, texture_buffer_lut_rg_id);
+        texture_buffer_lut_rg = OpLoad(image_buffer_id, texture_buffer_lut_rg_id);
     }
-    const Id entry{
-        OpImageFetch(vec_ids.Get(4), OpImage(image_buffer_id, texture_buffer_lut_rg), p)};
+    const Id entry{OpImageFetch(vec_ids.Get(4), texture_buffer_lut_rg, p)};
     const Id entry_r{OpCompositeExtract(f32_id, entry, 0)};
     const Id entry_g{OpCompositeExtract(f32_id, entry, 1)};
     return OpFClamp(f32_id, OpFma(f32_id, entry_g, index_f, entry_r), ConstF32(0.f), ConstF32(1.f));
@@ -1192,12 +1231,10 @@ Id FragmentModule::SampleProcTexColor(Id lut_coord, Id level) {
         OpFMul(f32_id, lut_coord, OpConvertSToF(f32_id, OpISub(i32_id, lut_width, ConstS32(1))));
 
     if (!Sirit::ValidId(texture_buffer_lut_rgba)) {
-        const Id sampled_image{TypeSampledImage(image_buffer_id)};
-        texture_buffer_lut_rgba = OpLoad(sampled_image, texture_buffer_lut_rgba_id);
+        texture_buffer_lut_rgba = OpLoad(image_buffer_id, texture_buffer_lut_rgba_id);
     }
 
     const Id proctex_lut_offset{GetShaderDataMember(i32_id, ConstS32(14))};
-    const Id lut_rgba{OpImage(image_buffer_id, texture_buffer_lut_rgba)};
 
     switch (config.proctex.lut_filter) {
     case ProcTexFilter::Linear:
@@ -1208,8 +1245,8 @@ Id FragmentModule::SampleProcTexColor(Id lut_coord, Id level) {
         const Id proctex_diff_lut_offset{GetShaderDataMember(i32_id, ConstS32(15))};
         const Id p1{OpIAdd(i32_id, lut_index_i, proctex_lut_offset)};
         const Id p2{OpIAdd(i32_id, lut_index_i, proctex_diff_lut_offset)};
-        const Id texel1{OpImageFetch(vec_ids.Get(4), lut_rgba, p1)};
-        const Id texel2{OpImageFetch(vec_ids.Get(4), lut_rgba, p2)};
+        const Id texel1{OpImageFetch(vec_ids.Get(4), texture_buffer_lut_rgba, p1)};
+        const Id texel2{OpImageFetch(vec_ids.Get(4), texture_buffer_lut_rgba, p2)};
         return OpFAdd(vec_ids.Get(4), texel1,
                       OpVectorTimesScalar(vec_ids.Get(4), texel2, lut_index_f));
     }
@@ -1219,7 +1256,7 @@ Id FragmentModule::SampleProcTexColor(Id lut_coord, Id level) {
         lut_coord = OpFAdd(f32_id, lut_coord, OpConvertSToF(f32_id, lut_offset));
         const Id lut_coord_rounded{OpConvertFToS(i32_id, OpRound(f32_id, lut_coord))};
         const Id p{OpIAdd(i32_id, lut_coord_rounded, proctex_lut_offset)};
-        return OpImageFetch(vec_ids.Get(4), lut_rgba, p);
+        return OpImageFetch(vec_ids.Get(4), texture_buffer_lut_rgba, p);
     }
     }
 
@@ -1229,16 +1266,14 @@ Id FragmentModule::SampleProcTexColor(Id lut_coord, Id level) {
 Id FragmentModule::LookupLightingLUT(Id lut_index, Id index, Id delta) {
     // Only load the texture buffer lut once
     if (!Sirit::ValidId(texture_buffer_lut_lf)) {
-        const Id sampled_image{TypeSampledImage(image_buffer_id)};
-        texture_buffer_lut_lf = OpLoad(sampled_image, texture_buffer_lut_lf_id);
+        texture_buffer_lut_lf = OpLoad(image_buffer_id, texture_buffer_lut_lf_id);
     }
 
     const Id lut_index_x{OpShiftRightArithmetic(i32_id, lut_index, ConstS32(2))};
     const Id lut_index_y{OpBitwiseAnd(i32_id, lut_index, ConstS32(3))};
     const Id lut_offset{GetShaderDataMember(i32_id, ConstS32(18), lut_index_x, lut_index_y)};
     const Id coord{OpIAdd(i32_id, lut_offset, index)};
-    const Id entry{
-        OpImageFetch(vec_ids.Get(4), OpImage(image_buffer_id, texture_buffer_lut_lf), coord)};
+    const Id entry{OpImageFetch(vec_ids.Get(4), texture_buffer_lut_lf, coord)};
     const Id entry_r{OpCompositeExtract(f32_id, entry, 0)};
     const Id entry_g{OpCompositeExtract(f32_id, entry, 1)};
     return OpFma(f32_id, entry_g, delta, entry_r);
@@ -1452,13 +1487,24 @@ void FragmentModule::DefineEntryPoint() {
     AddCapability(spv::Capability::Shader);
     AddCapability(spv::Capability::SampledBuffer);
     AddCapability(spv::Capability::ImageQuery);
+    if (use_fragment_shader_barycentric) {
+        AddCapability(spv::Capability::FragmentBarycentricKHR);
+        AddExtension("SPV_KHR_fragment_shader_barycentric");
+    }
     SetMemoryModel(spv::AddressingModel::Logical, spv::MemoryModel::GLSL450);
 
     const Id main_type{TypeFunction(TypeVoid())};
     const Id main_func{OpFunction(TypeVoid(), spv::FunctionControlMask::MaskNone, main_type)};
-    AddEntryPoint(spv::ExecutionModel::Fragment, main_func, "main", primary_color_id,
-                  texcoord_id[0], texcoord_id[1], texcoord_id[2], texcoord0_w_id, normquat_id,
-                  view_id, color_id, gl_frag_coord_id, gl_frag_depth_id);
+
+    boost::container::small_vector<Id, 11> interface_ids{
+        primary_color_id, texcoord_id[0], texcoord_id[1], texcoord_id[2],   texcoord0_w_id,
+        normquat_id,      view_id,        color_id,       gl_frag_coord_id, gl_frag_depth_id,
+    };
+    if (use_fragment_shader_barycentric) {
+        interface_ids.push_back(gl_bary_coord_id);
+    }
+
+    AddEntryPoint(spv::ExecutionModel::Fragment, main_func, "main", interface_ids);
     AddExecutionMode(main_func, spv::ExecutionMode::OriginUpperLeft);
     AddExecutionMode(main_func, spv::ExecutionMode::DepthReplacing);
 }
@@ -1510,24 +1556,33 @@ void FragmentModule::DefineInterface() {
     texcoord_id[1] = DefineInput(vec_ids.Get(2), 3);
     texcoord_id[2] = DefineInput(vec_ids.Get(2), 4);
     texcoord0_w_id = DefineInput(f32_id, 5);
-    normquat_id = DefineInput(vec_ids.Get(4), 6);
+    if (use_fragment_shader_barycentric) {
+        normquat_id = DefineInput(TypeArray(vec_ids.Get(4), ConstU32(3U)), 6);
+        Decorate(normquat_id, spv::Decoration::PerVertexKHR);
+    } else {
+        normquat_id = DefineInput(vec_ids.Get(4), 6);
+    }
     view_id = DefineInput(vec_ids.Get(3), 7);
     color_id = DefineOutput(vec_ids.Get(4), 0);
 
-    // Define the texture unit samplers/uniforms
+    // Define the texture unit samplers types
     image_buffer_id = TypeImage(f32_id, spv::Dim::Buffer, 0, 0, 0, 1, spv::ImageFormat::Unknown);
     image2d_id = TypeImage(f32_id, spv::Dim::Dim2D, 0, 0, 0, 1, spv::ImageFormat::Unknown);
     image_cube_id = TypeImage(f32_id, spv::Dim::Cube, 0, 0, 0, 1, spv::ImageFormat::Unknown);
     image_r32_id = TypeImage(u32_id, spv::Dim::Dim2D, 0, 0, 0, 2, spv::ImageFormat::R32ui);
     sampler_id = TypeSampler();
 
-    texture_buffer_lut_lf_id = DefineUniformConst(TypeSampledImage(image_buffer_id), 0, 3);
-    texture_buffer_lut_rg_id = DefineUniformConst(TypeSampledImage(image_buffer_id), 0, 4);
-    texture_buffer_lut_rgba_id = DefineUniformConst(TypeSampledImage(image_buffer_id), 0, 5);
-    tex0_id = DefineUniformConst(TypeSampledImage(image2d_id), 1, 0);
+    // Define lighting texture buffers
+    texture_buffer_lut_lf_id = DefineUniformConst(image_buffer_id, 0, 3);
+    texture_buffer_lut_rg_id = DefineUniformConst(image_buffer_id, 0, 4);
+    texture_buffer_lut_rgba_id = DefineUniformConst(image_buffer_id, 0, 5);
+
+    // Define texture unit samplers
+    const auto texture_type = config.texture.texture0_type.Value();
+    const auto tex0_type = texture_type == TextureType::TextureCube ? image_cube_id : image2d_id;
+    tex0_id = DefineUniformConst(TypeSampledImage(tex0_type), 1, 0);
     tex1_id = DefineUniformConst(TypeSampledImage(image2d_id), 1, 1);
     tex2_id = DefineUniformConst(TypeSampledImage(image2d_id), 1, 2);
-    tex_cube_id = DefineUniformConst(TypeSampledImage(image_cube_id), 1, 3);
 
     // Define shadow textures
     shadow_texture_px_id = DefineUniformConst(image_r32_id, 2, 0, true);
@@ -1537,10 +1592,14 @@ void FragmentModule::DefineInterface() {
     gl_frag_depth_id = DefineVar(f32_id, spv::StorageClass::Output);
     Decorate(gl_frag_coord_id, spv::Decoration::BuiltIn, spv::BuiltIn::FragCoord);
     Decorate(gl_frag_depth_id, spv::Decoration::BuiltIn, spv::BuiltIn::FragDepth);
+    if (use_fragment_shader_barycentric) {
+        gl_bary_coord_id = DefineVar(vec_ids.Get(3), spv::StorageClass::Input);
+        Decorate(gl_bary_coord_id, spv::Decoration::BuiltIn, spv::BuiltIn::BaryCoordKHR);
+    }
 }
 
-std::vector<u32> GenerateFragmentShader(const FSConfig& config) {
-    FragmentModule module{config};
+std::vector<u32> GenerateFragmentShader(const FSConfig& config, const Profile& profile) {
+    FragmentModule module{config, profile};
     module.Generate();
     return module.Assemble();
 }

@@ -30,7 +30,7 @@ class FragmentModule : public Sirit::Module {
     static constexpr u32 NUM_NON_PROC_TEX_UNITS = 3;
 
 public:
-    explicit FragmentModule(const FSConfig& config);
+    explicit FragmentModule(const FSConfig& config, const Profile& profile);
     ~FragmentModule();
 
     /// Emits SPIR-V bytecode corresponding to the provided pica fragment configuration
@@ -215,6 +215,10 @@ private:
 
 private:
     const FSConfig& config;
+    const Profile& profile;
+
+    bool use_fragment_shader_barycentric{};
+
     Id void_id{};
     Id bool_id{};
     Id f32_id{};
@@ -242,12 +246,12 @@ private:
 
     Id gl_frag_coord_id{};
     Id gl_frag_depth_id{};
+    Id gl_bary_coord_id{};
     Id depth{};
 
     Id tex0_id{};
     Id tex1_id{};
     Id tex2_id{};
-    Id tex_cube_id{};
     Id texture_buffer_lut_lf_id{};
     Id texture_buffer_lut_rg_id{};
     Id texture_buffer_lut_rgba_id{};
@@ -284,6 +288,6 @@ private:
  * @param separable_shader generates shader that can be used for separate shader object
  * @returns String of the shader source code
  */
-std::vector<u32> GenerateFragmentShader(const FSConfig& config);
+std::vector<u32> GenerateFragmentShader(const FSConfig& config, const Profile& profile);
 
 } // namespace Pica::Shader::Generator::SPIRV

@@ -61,11 +61,10 @@ constexpr std::array<vk::DescriptorSetLayoutBinding, 6> BUFFER_BINDINGS = {{
     {5, vk::DescriptorType::eUniformTexelBuffer, 1, vk::ShaderStageFlagBits::eFragment},
 }};
 
-constexpr std::array<vk::DescriptorSetLayoutBinding, 4> TEXTURE_BINDINGS = {{
+constexpr std::array<vk::DescriptorSetLayoutBinding, 3> TEXTURE_BINDINGS = {{
     {0, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment},
     {1, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment},
     {2, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment},
-    {3, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment},
 }};
 
 // TODO: Use descriptor array for shadow cube
@@ -205,19 +204,55 @@ bool PipelineCache::BindPipeline(const PipelineInfo& info, bool wait_built) {
         return false;
     }
 
-    for (u32 i = 0; i < NUM_RASTERIZER_SETS; i++) {
-        if (!set_dirty[i]) {
-            continue;
-        }
-        bound_descriptor_sets[i] = descriptor_set_providers[i].Acquire(update_data[i]);
-        set_dirty[i] = false;
+    u32 new_descriptors_start = 0;
+    std::span<vk::DescriptorSet> new_descriptors_span{};
+    std::span<u32> new_offsets_span{};
+
+    // Ensure all the descriptor sets are set at least once at the beginning.
+    if (scheduler.IsStateDirty(StateFlags::DescriptorSets)) {
+        set_dirty.set();
     }
+
+    if (set_dirty.any()) {
+        for (u32 i = 0; i < NUM_RASTERIZER_SETS; i++) {
+            if (!set_dirty.test(i)) {
+                continue;
+            }
+            bound_descriptor_sets[i] = descriptor_set_providers[i].Acquire(update_data[i]);
+        }
+        new_descriptors_span = bound_descriptor_sets;
+
+        // Only send new offsets if the buffer descriptor-set changed.
+        if (set_dirty.test(0)) {
+            new_offsets_span = offsets;
+        }
+
+        // Try to compact the number of updated descriptor-set slots to the ones that have actually
+        // changed
+        if (!set_dirty.all()) {
+            const u64 dirty_mask = set_dirty.to_ulong();
+            new_descriptors_start = static_cast<u32>(std::countr_zero(dirty_mask));
+            const u32 new_descriptors_end = 64u - static_cast<u32>(std::countl_zero(dirty_mask));
+            const u32 new_descriptors_size = new_descriptors_end - new_descriptors_start;
+
+            new_descriptors_span =
+                new_descriptors_span.subspan(new_descriptors_start, new_descriptors_size);
+        }
+
+        set_dirty.reset();
+    }
+
+    boost::container::static_vector<vk::DescriptorSet, NUM_RASTERIZER_SETS> new_descriptors(
+        new_descriptors_span.begin(), new_descriptors_span.end());
+    boost::container::static_vector<u32, NUM_DYNAMIC_OFFSETS> new_offsets(new_offsets_span.begin(),
+                                                                          new_offsets_span.end());
 
     const bool is_dirty = scheduler.IsStateDirty(StateFlags::Pipeline);
     const bool pipeline_dirty = (current_pipeline != pipeline) || is_dirty;
     scheduler.Record([this, is_dirty, pipeline_dirty, pipeline,
                       current_dynamic = current_info.dynamic, dynamic = info.dynamic,
-                      descriptor_sets = bound_descriptor_sets, offsets = offsets,
+                      new_descriptors_start, descriptor_sets = std::move(new_descriptors),
+                      offsets = std::move(new_offsets),
                       current_rasterization = current_info.rasterization,
                       current_depth_stencil = current_info.depth_stencil,
                       rasterization = info.rasterization,
@@ -318,13 +353,16 @@ bool PipelineCache::BindPipeline(const PipelineInfo& info, bool wait_built) {
             }
             cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline->Handle());
         }
-        cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipeline_layout, 0,
-                                  descriptor_sets, offsets);
+
+        if (descriptor_sets.size()) {
+            cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipeline_layout,
+                                      new_descriptors_start, descriptor_sets, offsets);
+        }
     });
 
     current_info = info;
     current_pipeline = pipeline;
-    scheduler.MarkStateNonDirty(StateFlags::Pipeline);
+    scheduler.MarkStateNonDirty(StateFlags::Pipeline | StateFlags::DescriptorSets);
 
     return true;
 }
@@ -433,7 +471,7 @@ void PipelineCache::UseFragmentShader(const Pica::Regs& regs,
     if (new_shader) {
         const bool use_spirv = Settings::values.spirv_shader_gen.GetValue();
         if (use_spirv && !fs_config.UsesShadowPipeline()) {
-            const std::vector code = SPIRV::GenerateFragmentShader(fs_config);
+            const std::vector code = SPIRV::GenerateFragmentShader(fs_config, profile);
             shader.module = CompileSPV(code, instance.GetDevice());
             shader.MarkDone();
         } else {
@@ -497,7 +535,10 @@ void PipelineCache::BindTexelBuffer(u32 binding, vk::BufferView buffer_view) {
 }
 
 void PipelineCache::SetBufferOffset(u32 binding, size_t offset) {
-    offsets[binding] = static_cast<u32>(offset);
+    if (offsets[binding] != static_cast<u32>(offset)) {
+        offsets[binding] = static_cast<u32>(offset);
+        set_dirty[0] = true;
+    }
 }
 
 bool PipelineCache::IsCacheValid(std::span<const u8> data) const {

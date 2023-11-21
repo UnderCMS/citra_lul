@@ -76,6 +76,35 @@ struct TicketInfo {
 
 static_assert(sizeof(TicketInfo) == 0x18, "Ticket info structure size is wrong");
 
+bool CTCert::IsValid() const {
+    constexpr std::string_view expected_issuer_prod = "Nintendo CA - G3_NintendoCTR2prod";
+    constexpr std::string_view expected_issuer_dev = "Nintendo CA - G3_NintendoCTR2dev";
+    constexpr u32 expected_signature_type = 0x010005;
+
+    return signature_type == expected_signature_type &&
+           (std::string(issuer.data()) == expected_issuer_prod ||
+            std::string(issuer.data()) == expected_issuer_dev);
+
+    return false;
+}
+
+u32 CTCert::GetDeviceID() const {
+    constexpr std::string_view key_id_prefix = "CT";
+
+    const std::string key_id_str(key_id.data());
+    if (key_id_str.starts_with(key_id_prefix)) {
+        const std::string device_id =
+            key_id_str.substr(key_id_prefix.size(), key_id_str.find('-') - key_id_prefix.size());
+        char* end_ptr;
+        const u32 device_id_value = std::strtoul(device_id.c_str(), &end_ptr, 16);
+        if (*end_ptr == '\0') {
+            return device_id_value;
+        }
+    }
+    // Error
+    return 0;
+}
+
 class CIAFile::DecryptionState {
 public:
     std::vector<CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption> content;
@@ -374,6 +403,45 @@ bool CIAFile::Close() const {
 
 void CIAFile::Flush() const {}
 
+TicketFile::TicketFile() {}
+
+TicketFile::~TicketFile() {
+    Close();
+}
+
+ResultVal<std::size_t> TicketFile::Read(u64 offset, std::size_t length, u8* buffer) const {
+    UNIMPLEMENTED();
+    return length;
+}
+
+ResultVal<std::size_t> TicketFile::Write(u64 offset, std::size_t length, bool flush,
+                                         const u8* buffer) {
+    written += length;
+    data.resize(written);
+    std::memcpy(data.data() + offset, buffer, length);
+    return length;
+}
+
+u64 TicketFile::GetSize() const {
+    return written;
+}
+
+bool TicketFile::SetSize(u64 size) const {
+    return false;
+}
+
+bool TicketFile::Close() const {
+    FileSys::Ticket ticket;
+    if (ticket.Load(data, 0) == Loader::ResultStatus::Success) {
+        LOG_WARNING(Service_AM, "Discarding ticket for {:#016X}.", ticket.GetTitleID());
+    } else {
+        LOG_ERROR(Service_AM, "Invalid ticket provided to TicketFile.");
+    }
+    return true;
+}
+
+void TicketFile::Flush() const {}
+
 InstallStatus InstallCIA(const std::string& path,
                          std::function<ProgressCallback>&& update_callback) {
     LOG_INFO(Service_AM, "Installing {}...", path);
@@ -646,6 +714,8 @@ std::string GetTitleContentPath(Service::FS::MediaType media_type, u64 tid, std:
 }
 
 std::string GetTitlePath(Service::FS::MediaType media_type, u64 tid) {
+    // TODO(PabloMK7) TWL titles should be in TWL Nand. Assuming CTR Nand for now.
+
     u32 high = static_cast<u32>(tid >> 32);
     u32 low = static_cast<u32>(tid & 0xFFFFFFFF);
 
@@ -698,9 +768,19 @@ void Module::ScanForTitles(Service::FS::MediaType media_type) {
             if (tid_string.length() == TITLE_ID_VALID_LENGTH) {
                 const u64 tid = std::stoull(tid_string, nullptr, 16);
 
-                FileSys::NCCHContainer container(GetTitleContentPath(media_type, tid));
-                if (container.Load() == Loader::ResultStatus::Success)
-                    am_title_list[static_cast<u32>(media_type)].push_back(tid);
+                if (tid & TWL_TITLE_ID_FLAG) {
+                    // TODO(PabloMK7) Move to TWL Nand, for now only check that
+                    // the contents exists in CTR Nand as this is a SRL file
+                    // instead of NCCH.
+                    if (FileUtil::Exists(GetTitleContentPath(media_type, tid))) {
+                        am_title_list[static_cast<u32>(media_type)].push_back(tid);
+                    }
+                } else {
+                    FileSys::NCCHContainer container(GetTitleContentPath(media_type, tid));
+                    if (container.Load() == Loader::ResultStatus::Success) {
+                        am_title_list[static_cast<u32>(media_type)].push_back(tid);
+                    }
+                }
             }
         }
     }
@@ -930,6 +1010,10 @@ void Module::Interface::GetProgramInfos(Kernel::HLERequestContext& ctx) {
     rb.PushMappedBuffer(title_info_out);
 }
 
+void Module::Interface::GetProgramInfosIgnorePlatform(Kernel::HLERequestContext& ctx) {
+    GetProgramInfos(ctx);
+}
+
 void Module::Interface::DeleteUserProgram(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     auto media_type = rp.PopEnum<FS::MediaType>();
@@ -1154,6 +1238,21 @@ void Module::Interface::GetTicketList(Kernel::HLERequestContext& ctx) {
                 ticket_list_count, ticket_index);
 }
 
+void Module::Interface::GetDeviceID(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx);
+
+    const u32 deviceID = am->ct_cert.IsValid() ? am->ct_cert.GetDeviceID() : 0;
+
+    if (deviceID == 0) {
+        LOG_ERROR(Service_AM, "Invalid or missing CTCert");
+    }
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(3, 0);
+    rb.Push(RESULT_SUCCESS);
+    rb.Push(0);
+    rb.Push(deviceID);
+}
+
 void Module::Interface::NeedsCleanup(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     const auto media_type = rp.Pop<u8>();
@@ -1165,6 +1264,16 @@ void Module::Interface::NeedsCleanup(Kernel::HLERequestContext& ctx) {
     rb.Push<bool>(false);
 }
 
+void Module::Interface::DoCleanup(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx);
+    const auto media_type = rp.Pop<u8>();
+
+    LOG_DEBUG(Service_AM, "(STUBBED) called, media_type={:#02x}", media_type);
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
+    rb.Push(RESULT_SUCCESS);
+}
+
 void Module::Interface::QueryAvailableTitleDatabase(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     u8 media_type = rp.Pop<u8>();
@@ -1174,6 +1283,45 @@ void Module::Interface::QueryAvailableTitleDatabase(Kernel::HLERequestContext& c
     rb.Push(true);
 
     LOG_WARNING(Service_AM, "(STUBBED) media_type={}", media_type);
+}
+
+void Module::Interface::GetPersonalizedTicketInfoList(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx);
+    [[maybe_unused]] u32 ticket_count = rp.Pop<u32>();
+    [[maybe_unused]] auto& buffer = rp.PopMappedBuffer();
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
+    rb.Push(RESULT_SUCCESS); // No error
+    rb.Push(0);
+
+    LOG_WARNING(Service_AM, "(STUBBED) called, ticket_count={}", ticket_count);
+}
+
+void Module::Interface::GetNumImportTitleContextsFiltered(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx);
+    u8 media_type = rp.Pop<u8>();
+    u8 filter = rp.Pop<u8>();
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
+    rb.Push(RESULT_SUCCESS); // No error
+    rb.Push(0);
+
+    LOG_WARNING(Service_AM, "(STUBBED) called, media_type={}, filter={}", media_type, filter);
+}
+
+void Module::Interface::GetImportTitleContextListFiltered(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx);
+    [[maybe_unused]] const u32 count = rp.Pop<u32>();
+    const u8 media_type = rp.Pop<u8>();
+    const u8 filter = rp.Pop<u8>();
+    auto& buffer = rp.PopMappedBuffer();
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
+    rb.Push(RESULT_SUCCESS); // No error
+    rb.Push(0);
+    rb.PushMappedBuffer(buffer);
+
+    LOG_WARNING(Service_AM, "(STUBBED) called, media_type={}, filter={}", media_type, filter);
 }
 
 void Module::Interface::CheckContentRights(Kernel::HLERequestContext& ctx) {
@@ -1224,7 +1372,7 @@ void Module::Interface::BeginImportProgram(Kernel::HLERequestContext& ctx) {
     // Citra will store contents out to sdmc/nand
     const FileSys::Path cia_path = {};
     auto file = std::make_shared<Service::FS::File>(
-        am->kernel, std::make_unique<CIAFile>(media_type), cia_path);
+        *am->kernel, std::make_unique<CIAFile>(media_type), cia_path);
 
     am->cia_installing = true;
 
@@ -1251,7 +1399,7 @@ void Module::Interface::BeginImportProgramTemporarily(Kernel::HLERequestContext&
     // contents out to sdmc/nand
     const FileSys::Path cia_path = {};
     auto file = std::make_shared<Service::FS::File>(
-        am->kernel, std::make_unique<CIAFile>(FS::MediaType::NAND), cia_path);
+        *am->kernel, std::make_unique<CIAFile>(FS::MediaType::NAND), cia_path);
 
     am->cia_installing = true;
 
@@ -1662,14 +1810,99 @@ void Module::Interface::GetMetaDataFromCia(Kernel::HLERequestContext& ctx) {
     rb.PushMappedBuffer(output_buffer);
 }
 
-Module::Module(Core::System& system) : kernel(system.Kernel()) {
+void Module::Interface::BeginImportTicket(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx);
+
+    // Create our TicketFile handle for the app to write to
+    auto file = std::make_shared<Service::FS::File>(*am->kernel, std::make_unique<TicketFile>(),
+                                                    FileSys::Path{});
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
+    rb.Push(RESULT_SUCCESS); // No error
+    rb.PushCopyObjects(file->Connect());
+
+    LOG_WARNING(Service_AM, "(STUBBED) called");
+}
+
+void Module::Interface::EndImportTicket(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx);
+    [[maybe_unused]] const auto ticket = rp.PopObject<Kernel::ClientSession>();
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
+    rb.Push(RESULT_SUCCESS);
+
+    LOG_WARNING(Service_AM, "(STUBBED) called");
+}
+
+void Module::Interface::GetDeviceCert(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx);
+    [[maybe_unused]] u32 size = rp.Pop<u32>();
+    auto buffer = rp.PopMappedBuffer();
+
+    if (!am->ct_cert.IsValid()) {
+        LOG_ERROR(Service_AM, "Invalid or missing CTCert");
+    }
+
+    buffer.Write(&am->ct_cert, 0, std::min(sizeof(CTCert), buffer.GetSize()));
+    IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
+    rb.Push(RESULT_SUCCESS);
+    rb.Push(0);
+    rb.PushMappedBuffer(buffer);
+}
+
+std::string Module::GetCTCertPath() {
+    return FileUtil::GetUserPath(FileUtil::UserPath::SysDataDir) + "CTCert.bin";
+}
+
+void Module::InvalidateCTCertData() {
+    ct_cert = CTCert();
+}
+
+CTCertLoadStatus Module::LoadCTCertFile() {
+    if (ct_cert.IsValid()) {
+        return CTCertLoadStatus::Loaded;
+    }
+    std::string file_path = GetCTCertPath();
+    if (!FileUtil::Exists(file_path)) {
+        return CTCertLoadStatus::NotFound;
+    }
+    FileUtil::IOFile file(file_path, "rb");
+    if (!file.IsOpen()) {
+        return CTCertLoadStatus::IOError;
+    }
+    if (file.GetSize() != sizeof(CTCert)) {
+        return CTCertLoadStatus::Invalid;
+    }
+    if (file.ReadBytes(&ct_cert, sizeof(CTCert)) != sizeof(CTCert)) {
+        return CTCertLoadStatus::IOError;
+    }
+    if (!ct_cert.IsValid()) {
+        ct_cert = CTCert();
+        return CTCertLoadStatus::Invalid;
+    }
+    return CTCertLoadStatus::Loaded;
+}
+
+Module::Module() {
+    LoadCTCertFile();
+}
+
+Module::Module(Core::System& system) : kernel(&system.Kernel()) {
     ScanForAllTitles();
+    LoadCTCertFile();
     system_updater_mutex = system.Kernel().CreateMutex(false, "AM::SystemUpdaterMutex");
 }
 
-Module::Module(Kernel::KernelSystem& kernel) : kernel(kernel) {}
+Module::Module(Kernel::KernelSystem& kernel) : kernel(&kernel) {}
 
 Module::~Module() = default;
+
+std::shared_ptr<Module> GetModule(Core::System& system) {
+    auto am = system.ServiceManager().GetService<Service::AM::Module::Interface>("am:u");
+    if (!am)
+        return nullptr;
+    return am->GetModule();
+}
 
 void InstallInterfaces(Core::System& system) {
     auto& service_manager = system.ServiceManager();
