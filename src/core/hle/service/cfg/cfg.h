@@ -639,6 +639,7 @@ public:
      * Saves MCU specific data
      */
     void SaveMCUConfig();
+    /**
      * Invalidates the loaded secure data so that it is loaded again.
      */
     void InvalidateSecureData();
