@@ -271,6 +271,7 @@ public:
          *      2 : UUID Clock Sequence
          */
         void GetUUIDClockSequence(Kernel::HLERequestContext& ctx);
+        /**
          * CFG::SecureInfoGetSerialNo service function
          *  Inputs:
          *      1 : Buffer Size
