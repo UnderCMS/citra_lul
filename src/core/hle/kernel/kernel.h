@@ -184,12 +184,14 @@ public:
      * @param processor_id The ID(s) of the processors on which the thread is desired to be run
      * @param stack_top The address of the thread's stack top
      * @param owner_process The parent process for the thread
+     * @param make_ready If the thread should be put in the ready queue
      * @return A shared pointer to the newly created thread
      */
     ResultVal<std::shared_ptr<Thread>> CreateThread(std::string name, VAddr entry_point,
                                                     u32 priority, u32 arg, s32 processor_id,
                                                     VAddr stack_top,
-                                                    std::shared_ptr<Process> owner_process);
+                                                    std::shared_ptr<Process> owner_process,
+                                                    bool make_ready = true);
 
     /**
      * Creates a semaphore.
