@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <random>
 #include <boost/serialization/string.hpp>
 #include "common/archives.h"
 #include "common/assert.h"
@@ -12,6 +13,7 @@
 #include "common/serialization/boost_flat_set.h"
 #include "core/arm/arm_interface.h"
 #include "core/arm/skyeye_common/armstate.h"
+#include "core/core.h"
 #include "core/hle/kernel/errors.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/mutex.h"
@@ -322,7 +324,7 @@ static void ResetThreadContext(Core::ARM_Interface::ThreadContext& context, u32 
 
 ResultVal<std::shared_ptr<Thread>> KernelSystem::CreateThread(
     std::string name, VAddr entry_point, u32 priority, u32 arg, s32 processor_id, VAddr stack_top,
-    std::shared_ptr<Process> owner_process) {
+    std::shared_ptr<Process> owner_process, bool make_ready) {
     // Check if priority is in ranged. Lowest priority -> highest priority id.
     if (priority > ThreadPrioLowest) {
         LOG_ERROR(Kernel_SVC, "Invalid thread priority: {}", priority);
@@ -365,8 +367,11 @@ ResultVal<std::shared_ptr<Thread>> KernelSystem::CreateThread(
     // to initialize the context
     ResetThreadContext(thread->context, stack_top, entry_point, arg);
 
-    thread_managers[processor_id]->ready_queue.push_back(thread->current_priority, thread.get());
-    thread->status = ThreadStatus::Ready;
+    if (make_ready) {
+        thread_managers[processor_id]->ready_queue.push_back(thread->current_priority,
+                                                             thread.get());
+        thread->status = ThreadStatus::Ready;
+    }
 
     return thread;
 }
@@ -403,16 +408,43 @@ void Thread::BoostPriority(u32 priority) {
 
 std::shared_ptr<Thread> SetupMainThread(KernelSystem& kernel, u32 entry_point, u32 priority,
                                         std::shared_ptr<Process> owner_process) {
+    constexpr const s64 sleep_random_deviation_ns = 250'000'000LL;
+    constexpr const s64 sleep_normal_thread_base_ns = 250'000'000LL;
+    constexpr const s64 sleep_app_thread_base_ns = 2'750'000'000LL;
+    constexpr const u32 system_module_tid_high = 0x00040130;
+
+    Core::System& system = Core::System::GetInstance();
+    const bool is_lle_service =
+        static_cast<u32>(owner_process->codeset->program_id >> 32) == system_module_tid_high;
+
+    s64 sleep_base_time_ns;
+    if (is_lle_service) {
+        sleep_base_time_ns = 0;
+    } else {
+        if (system.GetAppMainThreadExtendedSleep()) {
+            sleep_base_time_ns = sleep_app_thread_base_ns;
+            system.SetAppMainThreadExtendedSleep(false);
+        } else {
+            sleep_base_time_ns = sleep_normal_thread_base_ns;
+        }
+        std::random_device rand_device;
+        sleep_base_time_ns += (static_cast<s64>(rand_device()) % (sleep_random_deviation_ns * 2)) -
+                              sleep_random_deviation_ns;
+    }
     // Initialize new "main" thread
     auto thread_res =
         kernel.CreateThread("main", entry_point, priority, 0, owner_process->ideal_processor,
-                            Memory::HEAP_VADDR_END, owner_process);
-
+                            Memory::HEAP_VADDR_END, owner_process, sleep_base_time_ns == 0);
     std::shared_ptr<Thread> thread = std::move(thread_res).Unwrap();
 
     thread->context.fpscr =
         FPSCR_DEFAULT_NAN | FPSCR_FLUSH_TO_ZERO | FPSCR_ROUND_TOZERO | FPSCR_IXC; // 0x03C00010
 
+    if (sleep_base_time_ns != 0) {
+        thread->status = ThreadStatus::WaitSleep;
+        thread->WakeAfterDelay(sleep_base_time_ns);
+    }
+    
     // Note: The newly created thread will be run when the scheduler fires.
     return thread;
 }
