@@ -348,7 +348,14 @@ public:
 
     /// Applies any changes to settings to this core instance.
     void ApplySettings();
+    /// Sleep main thread of the first ever launched non-sysmodule process.
+    void SetAppMainThreadExtendedSleep(bool requires_sleep) {
+        main_thread_extended_sleep = requires_sleep;
+    }
 
+    bool GetAppMainThreadExtendedSleep() {
+        return main_thread_extended_sleep;
+    }
 private:
     /**
      * Initialize the emulated system.
