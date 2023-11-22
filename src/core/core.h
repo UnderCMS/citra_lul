@@ -446,6 +446,7 @@ private:
     std::function<bool()> mic_permission_func;
     bool mic_permission_granted = false;
 
+    bool main_thread_extended_sleep = false;
     friend class boost::serialization::access;
     template <typename Archive>
     void serialize(Archive& ar, const unsigned int file_version);
